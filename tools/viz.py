@@ -412,6 +412,10 @@ HTML_TEMPLATE = r"""<!doctype html>
   .note blockquote{border-left:3px solid #3a4258;margin:9px 0;padding:5px 0 5px 13px;color:#c1c7d8;font-size:13.5px}
   .note .wl,.md .wl{color:#7fb3ff;cursor:pointer;border-bottom:1px dotted #4a5578}
   .note .wl:hover,.md .wl:hover{color:#aecbff}
+  .notearea{width:100%;box-sizing:border-box;min-height:170px;resize:vertical;
+    font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    background:#15171f;color:#dde1ee;border:1px solid var(--line);border-radius:8px;padding:11px}
+  .notearea:focus{outline:none;border-color:#5566aa}
   .legend{position:fixed;right:14px;top:12px;background:rgba(27,30,40,.85);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12px}
   .legend .row{display:flex;align-items:center;margin:3px 0}
   .legend .dot{width:11px;height:11px;border-radius:50%;margin-right:7px;flex:none}
@@ -704,12 +708,31 @@ window.openNote=function(slug){
   const el=document.getElementById('detail');el.innerHTML='<div class="empty">loading note…</div>';
   fetch('/note?id='+encodeURIComponent(slug)).then(r=>r.json()).then(j=>{
     if(!j.ok){el.innerHTML='<div class="empty">note not found</div>';return;}
+    window._note={slug:slug,below:j.below||''};
+    const ed=j.editable?`<div class="sec"><button class="origbtn" onclick="editNote()">✍️ 写 / 改我的综合</button></div>`:'';
     el.innerHTML=`<div class="card"><h2>${esc(j.title)}</h2><span class="pill">your library note</span>
-      <div class="md note" id="notemd">${md2html(j.md)}</div></div>`;
+      <div class="md note" id="notemd">${md2html(j.md)}</div>${ed}<div id="noteedit"></div></div>`;
     const m=document.getElementById('notemd');
     m.querySelectorAll('.wl').forEach(w=>w.onclick=()=>openNote(w.dataset.note));
     typeset(m);
   }).catch(e=>{el.innerHTML='<div class="empty">⚠ '+e+'</div>';});
+};
+window.editNote=function(){
+  const box=document.getElementById('noteedit');
+  box.innerHTML=`<div class="sec"><div class="lab">我的综合 · Markdown（保存到标记线下方；上半部分永不改动）</div>
+    <textarea id="notearea" class="notearea" placeholder="写下你对这篇的理解/借鉴，可用 [[双链]] 关联其他论文…"></textarea>
+    <div class="btnrow" style="margin-top:8px">
+      <button class="deepbtn" onclick="saveNote()">💾 保存</button>
+      <button class="origbtn" onclick="document.getElementById('noteedit').innerHTML=''">取消</button>
+      <span class="deepmsg" id="savemsg"></span></div></div>`;
+  const ta=document.getElementById('notearea');ta.value=(window._note&&window._note.below)||'';ta.focus();
+};
+window.saveNote=function(){
+  const slug=window._note&&window._note.slug;if(!slug)return;
+  const text=document.getElementById('notearea').value,msg=document.getElementById('savemsg');msg.textContent='保存中…';
+  fetch('/savenote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:slug,text:text})})
+    .then(r=>r.json()).then(j=>{if(j.ok){msg.textContent='✓ 已保存';setTimeout(()=>openNote(slug),450);}else{msg.textContent='⚠ '+(j.msg||'失败');}})
+    .catch(e=>{msg.textContent='⚠ '+e;});
 };
 window.runSearch=function(q){
   const el=document.getElementById('detail');q=(q||'').trim();
@@ -769,15 +792,17 @@ def _backlinks(slug):
 
 
 def note_markdown(slug):
-    """Return (title, body-markdown) for a Literature/ or Topics/ note, or (None, None)."""
+    """Return (title, display_md, below_raw, editable) for a note, or (None,…)."""
     if not slug or "/" in slug or "\\" in slug or ".." in slug:
-        return None, None
+        return None, None, None, None
     for d in (LIT, TOPICS):
         p = os.path.join(d, slug + ".md")
         if os.path.exists(p):
             t = open(p, encoding="utf-8").read()
             m = re.search(r'^title:\s*"?(.*?)"?\s*$', t, re.M)
             title = m.group(1).strip() if m else slug
+            below = t.split(MARKER_NOTE, 1)[1].strip() if MARKER_NOTE in t else ""
+            editable = (d == LIT) and (MARKER_NOTE in t)   # only your Literature notes
             body = re.sub(r"^---\n.*?\n---\n", "", t, count=1, flags=re.S)   # drop frontmatter
             body = body.replace(MARKER_NOTE, "\n---\n")                        # marker → rule
             body = re.sub(r">\s*\[!quote\]\s*(.*)", lambda x: "> 〔" + x.group(1).strip() + "〕", body)
@@ -785,8 +810,24 @@ def note_markdown(slug):
             if bl:
                 body += "\n\n## 🔗 Referenced by\n" + "\n".join(
                     f"- [[{s}|{ti}]]" for s, ti in bl)
-            return title, body.strip()
-    return None, None
+            return title, body.strip(), below, editable
+    return None, None, None, None
+
+
+def save_note(slug, text):
+    """Write the user's synthesis BELOW the marker; the auto-generated top half is
+    never touched (sync-vault preserves it too). Only Literature notes are editable."""
+    if not slug or "/" in slug or "\\" in slug or ".." in slug:
+        return False, "bad id"
+    p = os.path.join(LIT, slug + ".md")
+    if not os.path.exists(p):
+        return False, "note not found"
+    raw = open(p, encoding="utf-8").read()
+    if MARKER_NOTE not in raw:
+        return False, "note has no editable section"
+    head = raw.split(MARKER_NOTE, 1)[0]
+    open(p, "w", encoding="utf-8").write(head + MARKER_NOTE + "\n\n" + (text or "").strip() + "\n")
+    return True, "saved"
 
 
 def make_html(date, live=False):
@@ -974,10 +1015,11 @@ def serve(date, port):
                 return self._json(200, {"ok": True, "results": library_search(q)})
             if pth == "/note":
                 slug = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", [""])[0]
-                title, md = note_markdown(slug)
+                title, md, below, editable = note_markdown(slug)
                 if md is None:
                     return self._json(404, {"ok": False, "msg": "note not found"})
-                return self._json(200, {"ok": True, "title": title, "md": md})
+                return self._json(200, {"ok": True, "title": title, "md": md,
+                                        "below": below, "editable": editable})
             if pth not in ("/", "/index.html"):
                 return self._json(404, {"ok": False})
             page, _ = make_html(date, live=True)
@@ -1001,6 +1043,9 @@ def serve(date, port):
             if self.path == "/deepread":
                 ok, out = run_deepread(pid)
                 return self._json(200, {"ok": ok, **({"deep": out} if ok else {"msg": out})})
+            if self.path == "/savenote":
+                ok, msg = save_note(pid, req.get("text", ""))
+                return self._json(200, {"ok": ok, "msg": msg})
             if self.path == "/fulltext":
                 doc = _paper_html(pid)
                 if doc:

@@ -25,7 +25,7 @@
 | 🛰️ **Daily recall** | arXiv + Semantic Scholar, scored to your interests, auto-deduped |
 | 🃏 **Value cards** | auto *Problem / Innovation / Directions* per paper |
 | 🌌 **Interactive graph** | papers linked to your areas and related library papers |
-| 🔎 **Built-in library search + reader** | search & read your notes/highlights, follow `[[links]]`, see backlinks — **no Obsidian needed** |
+| 🔎 **Built-in library: search + read/write** | search, read notes/highlights, follow `[[links]]`, see backlinks, and **write your own synthesis** — **no Obsidian needed** |
 | 💬 **Grounded Q&A** | answers cited to your own notes and highlights, never invented |
 | 🔬 **Deep reads** | a 6-section, method-focused analysis of any paper |
 | 🎯 **Learns your taste** | feedback + your Zotero highlights retune what it surfaces |
