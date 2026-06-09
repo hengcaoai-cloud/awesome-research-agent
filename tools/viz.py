@@ -752,6 +752,22 @@ def library_search(q, limit=40):
     return out[:limit]
 
 
+def _backlinks(slug):
+    """Notes that link to this one (the 'Referenced by' panel, like Obsidian)."""
+    needle = "[[" + slug
+    out = []
+    for d in (LIT, TOPICS):
+        for f in glob.glob(os.path.join(d, "*.md")):
+            base = os.path.basename(f)[:-3]
+            if base == slug:
+                continue
+            t = open(f, encoding="utf-8").read()
+            if needle in t:
+                m = re.search(r'^title:\s*"?(.*?)"?\s*$', t, re.M)
+                out.append((base, m.group(1).strip() if m else base))
+    return out
+
+
 def note_markdown(slug):
     """Return (title, body-markdown) for a Literature/ or Topics/ note, or (None, None)."""
     if not slug or "/" in slug or "\\" in slug or ".." in slug:
@@ -765,6 +781,10 @@ def note_markdown(slug):
             body = re.sub(r"^---\n.*?\n---\n", "", t, count=1, flags=re.S)   # drop frontmatter
             body = body.replace(MARKER_NOTE, "\n---\n")                        # marker → rule
             body = re.sub(r">\s*\[!quote\]\s*(.*)", lambda x: "> 〔" + x.group(1).strip() + "〕", body)
+            bl = _backlinks(slug)
+            if bl:
+                body += "\n\n## 🔗 Referenced by\n" + "\n".join(
+                    f"- [[{s}|{ti}]]" for s, ti in bl)
             return title, body.strip()
     return None, None
 

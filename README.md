@@ -25,23 +25,26 @@
 | 🛰️ **每日追新** | arXiv + Semantic Scholar，按你的兴趣打分排序、自动去重 |
 | 🃏 **价值卡片** | 每篇自动生成「问题 / 创新点 / 潜在方向」 |
 | 🌌 **交互图谱** | 论文连到你的领域和相关论文，可视化整个研究版图 |
-| 🔎 **内置库搜索＋笔记阅读** | 在网页里搜全库、读摘要和你的高亮、点双链跳转——**无需 Obsidian** |
+| 🔎 **内置库搜索＋笔记阅读** | 网页里搜全库、读摘要和你的高亮、点 `[[双链]]` 跳转、看反向链接——**无需 Obsidian** |
 | 💬 **基于你的库问答** | 答案引用你自己的笔记和高亮，绝不编造 |
 | 🔬 **深度精读** | 任意论文的 6 段式方法分析 |
 | 🎯 **越用越懂你** | 反馈 + 你的 Zotero 高亮，持续调整推荐 |
 
-## 🚀 三步上手
+## 🚀 上手（一条命令）
+
+**前置**：Python 3.9+ · Zotero 7+ · [Claude Code](https://www.anthropic.com/claude-code) 或 [Codex](https://developers.openai.com/codex) 之一。
 
 ```bash
-# 0. 需要 Python 3.9+、Zotero 7+、以及 Claude Code 或 Codex 之一
-
-git clone https://github.com/hengcaoai-cloud/awesome-research-agent.git ~/Paper && cd ~/Paper
-bash tools/setup.sh                       # 检查依赖 + 从 Zotero 生成笔记
-python3 tools/fetch.py && python3 tools/digest_cards.py   # 拉论文 + 生成卡片
-python3 tools/viz.py --serve              # 打开知识图谱 → http://127.0.0.1:8765
+git clone https://github.com/hengcaoai-cloud/awesome-research-agent.git ~/Paper
+cd ~/Paper
+bash start.sh            # 一键完成全部，并打开图谱
 ```
 
-再在项目目录运行智能体并对话：
+`start.sh` 会自动：①（首次）检查依赖 + 从你的 Zotero 生成笔记 → ② 拉取今天的论文 → ③ 生成价值卡片 → ④ 在浏览器打开知识图谱 <http://127.0.0.1:8765>。**以后每天就这一条命令。**
+
+> Zotero 不在默认位置？先 `export ZOTERO_DIR="你的Zotero文件夹"` 再运行。
+
+想用智能体**问答**，在项目目录里运行：
 
 ```bash
 cd ~/Paper && claude            # 或：codex
