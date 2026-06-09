@@ -38,9 +38,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = os.path.join(ROOT, "tools")
 INBOX = os.path.join(ROOT, "Inbox")
 LIT = os.path.join(ROOT, "Literature")
+TOPICS = os.path.join(ROOT, "Topics")
 DAILY = os.path.join(ROOT, "Daily")
 PDFCACHE = os.path.join(INBOX, ".pdfcache")
 PY = sys.executable or "python3"
+MARKER_NOTE = "<!-- ===== Below this line is yours; sync never touches it ===== -->"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import llm  # provider-agnostic agent CLI (Claude Code or OpenAI Codex)
 
@@ -398,6 +400,18 @@ HTML_TEMPLATE = r"""<!doctype html>
   .md .mdt th,.md .mdt td{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}
   .md .mdt th{background:#272b39}
   .md .mathblock{overflow-x:auto;margin:8px 0}
+  /* library search + note reading (Obsidian-in-the-web) */
+  .libsearch{width:100%;box-sizing:border-box;margin:0 0 14px;padding:10px 13px;font-size:14px;
+    border:1px solid var(--line);border-radius:9px;background:#15171f;color:var(--ink)}
+  .libsearch:focus{outline:none;border-color:#5566aa}
+  .result{padding:9px 11px;border-radius:8px;cursor:pointer;border:1px solid transparent;margin:2px 0}
+  .result:hover{background:#222634;border-color:var(--line)}
+  .result .rt{font-size:14px;color:#e3e7f2;line-height:1.35}
+  .result .rm{font-size:12px;color:var(--mut);margin-top:3px}
+  .reshead{font-size:12px;color:var(--mut);margin:2px 0 8px}
+  .note blockquote{border-left:3px solid #3a4258;margin:9px 0;padding:5px 0 5px 13px;color:#c1c7d8;font-size:13.5px}
+  .note .wl,.md .wl{color:#7fb3ff;cursor:pointer;border-bottom:1px dotted #4a5578}
+  .note .wl:hover,.md .wl:hover{color:#aecbff}
   .legend{position:fixed;right:14px;top:12px;background:rgba(27,30,40,.85);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12px}
   .legend .row{display:flex;align-items:center;margin:3px 0}
   .legend .dot{width:11px;height:11px;border-radius:50%;margin-right:7px;flex:none}
@@ -405,8 +419,9 @@ HTML_TEMPLATE = r"""<!doctype html>
 </style></head>
 <body>
 <div id="wrap">
-  <div id="side"><h1>Today's recommendations</h1><div class="sub">__DATE__ · click a node for details</div>
-    <div id="detail"><div class="empty">Click a paper node (solid dot) to see what it solves, its innovation, and potential directions — and use 👍/👎 to steer recommendations.</div></div>
+  <div id="side"><h1>Today's recommendations</h1><div class="sub">__DATE__ · click a node, or search your library ↓</div>
+    <input id="libsearch" class="libsearch" type="search" placeholder="🔎 Search your library — title, abstract, your highlights…" autocomplete="off">
+    <div id="detail"><div class="empty">Click a paper node (solid dot) for its value card; click a library paper (ring) to read its note + your highlights; or search above.</div></div>
   </div>
   <div id="origpanel" style="display:none"></div>
   <canvas id="cv"></canvas>
@@ -589,8 +604,7 @@ function sec(l,v){return v?`<div class="sec"><div class="lab">${l}</div><div cla
 function select(n){sel=n;const d=n.detail||{},el=document.getElementById('detail');
   if(n.type==='area'){el.innerHTML=`<div class="card"><h2>${esc(d.title)}</h2><span class="pill">interest area</span>
     <div class="sec"><div class="val">Papers and library notes linked here share concepts in this area of yours. Click them to compare.</div></div></div>`;return;}
-  if(n.type==='lib'){el.innerHTML=`<div class="card"><h2>${esc(d.title)}</h2><span class="pill">in your library</span>
-    ${(d.colls||[]).map(c=>`<span class="pill">${esc(c)}</span>`).join('')}</div>`;return;}
+  if(n.type==='lib'){openNote(d.note||n.id.slice(2));return;}
   const pills=(d.matched||[]).map(m=>`<span class="pill">${esc(m)}</span>`).join('');
   let fb='';
   if(d.arxiv){fb=`<div class="fb" data-id="${esc(d.arxiv)}">
@@ -620,7 +634,8 @@ function select(n){sel=n;const d=n.detail||{},el=document.getElementById('detail
 function typeset(el){if(window.MathJax&&MathJax.typesetPromise)MathJax.typesetPromise([el]).catch(()=>{});}
 function md2html(s){
   const e=x=>x.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  const inl=t=>e(t).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`(.+?)`/g,'<code>$1</code>');
+  const inl=t=>e(t).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`(.+?)`/g,'<code>$1</code>')
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(m,a,b)=>`<span class="wl" data-note="${a.trim()}">${(b||a).trim()}</span>`);
   const L=s.replace(/\r/g,'').split('\n');let o=[],i=0;
   while(i<L.length){let ln=L[i];
     if(ln.trim().startsWith('$$')){  // display math (pass raw to MathJax, may span lines)
@@ -635,6 +650,8 @@ function md2html(s){
     let h=ln.match(/^(#{1,4})\s+(.*)/);if(h){o.push(`<div class="mdh">${inl(h[2])}</div>`);i++;continue;}
     if(/^\s*[-*]\s+/.test(ln)){let li=[];while(i<L.length&&/^\s*[-*]\s+/.test(L[i])){li.push(L[i].replace(/^\s*[-*]\s+/,''));i++;}
       o.push('<ul>'+li.map(x=>`<li>${inl(x)}</li>`).join('')+'</ul>');continue;}
+    if(/^\s*>/.test(ln)){let q=[];while(i<L.length&&/^\s*>/.test(L[i])){q.push(L[i].replace(/^\s*>\s?/,''));i++;}
+      o.push('<blockquote>'+q.map(x=>x.trim()===''?'':inl(x)).join('<br>')+'</blockquote>');continue;}
     if(ln.trim()===''){i++;continue;}o.push(`<p>${inl(ln)}</p>`);i++;}
   return o.join('');}
 window.deepread=function(id,btn){
@@ -682,8 +699,74 @@ lh+=`<div style="font-weight:600;margin:8px 0 5px">Nodes</div>
   <div class="row"><span class="dot" style="background:transparent;border:2px solid #cdd2e4"></span>paper in your library (ring)</div>
   <div class="row"><span class="dot" style="background:#cdd2e4;width:15px;height:15px"></span>interest area (large)</div>`;
 lg.innerHTML=lh;
+// ---- library search + note reading (Obsidian-in-the-web) ----
+window.openNote=function(slug){
+  const el=document.getElementById('detail');el.innerHTML='<div class="empty">loading note…</div>';
+  fetch('/note?id='+encodeURIComponent(slug)).then(r=>r.json()).then(j=>{
+    if(!j.ok){el.innerHTML='<div class="empty">note not found</div>';return;}
+    el.innerHTML=`<div class="card"><h2>${esc(j.title)}</h2><span class="pill">your library note</span>
+      <div class="md note" id="notemd">${md2html(j.md)}</div></div>`;
+    const m=document.getElementById('notemd');
+    m.querySelectorAll('.wl').forEach(w=>w.onclick=()=>openNote(w.dataset.note));
+    typeset(m);
+  }).catch(e=>{el.innerHTML='<div class="empty">⚠ '+e+'</div>';});
+};
+window.runSearch=function(q){
+  const el=document.getElementById('detail');q=(q||'').trim();
+  if(q.length<2){el.innerHTML='<div class="empty">Type ≥2 characters to search your library (title · abstract · your highlights).</div>';return;}
+  fetch('/search?q='+encodeURIComponent(q)).then(r=>r.json()).then(j=>{
+    const rs=j.results||[];
+    if(!rs.length){el.innerHTML=`<div class="empty">No library note matches “${esc(q)}”.</div>`;return;}
+    el.innerHTML=`<div class="reshead">${rs.length} result${rs.length>1?'s':''} in your library</div>`+
+      rs.map(r=>`<div class="result" data-note="${esc(r.slug)}"><div class="rt">${esc(r.title)}</div>
+        <div class="rm">${esc(r.coll)}${r.hl?(' · '+r.hl+' 🔖'):''} · …${esc(r.snippet)}…</div></div>`).join('');
+    el.querySelectorAll('.result').forEach(x=>x.onclick=()=>openNote(x.dataset.note));
+  }).catch(e=>{el.innerHTML='<div class="empty">⚠ '+e+'</div>';});
+};
+{const ls=document.getElementById('libsearch');let stm;
+ if(ls)ls.addEventListener('input',()=>{clearTimeout(stm);stm=setTimeout(()=>runSearch(ls.value),220);});}
 loop();
 </script></body></html>"""
+
+
+def library_search(q, limit=40):
+    """Full-text search across your library notes (title + abstract + highlights)."""
+    q = (q or "").strip().lower()
+    if len(q) < 2:
+        return []
+    out = []
+    for f in glob.glob(os.path.join(LIT, "*.md")):
+        t = open(f, encoding="utf-8").read()
+        low = t.lower()
+        if q not in low:
+            continue
+        m = re.search(r'^title:\s*"?(.*?)"?\s*$', t, re.M)
+        title = m.group(1).strip() if m else os.path.basename(f)[:-3]
+        cm = re.search(r"^collections:\s*\[(.*)\]", t, re.M)
+        coll = (cm.group(1).replace('"', '') if cm else "").strip()
+        i = low.find(q)
+        snip = re.sub(r"\s+", " ", t[max(0, i - 55):i + 95]).strip()
+        out.append({"slug": os.path.basename(f)[:-3], "title": title, "coll": coll,
+                    "snippet": snip, "hl": t.count("[!quote]")})
+    out.sort(key=lambda x: (0 if q in x["title"].lower() else 1, x["title"].lower()))
+    return out[:limit]
+
+
+def note_markdown(slug):
+    """Return (title, body-markdown) for a Literature/ or Topics/ note, or (None, None)."""
+    if not slug or "/" in slug or "\\" in slug or ".." in slug:
+        return None, None
+    for d in (LIT, TOPICS):
+        p = os.path.join(d, slug + ".md")
+        if os.path.exists(p):
+            t = open(p, encoding="utf-8").read()
+            m = re.search(r'^title:\s*"?(.*?)"?\s*$', t, re.M)
+            title = m.group(1).strip() if m else slug
+            body = re.sub(r"^---\n.*?\n---\n", "", t, count=1, flags=re.S)   # drop frontmatter
+            body = body.replace(MARKER_NOTE, "\n---\n")                        # marker → rule
+            body = re.sub(r">\s*\[!quote\]\s*(.*)", lambda x: "> 〔" + x.group(1).strip() + "〕", body)
+            return title, body.strip()
+    return None, None
 
 
 def make_html(date, live=False):
@@ -866,6 +949,15 @@ def serve(date, port):
                 self.send_header("Cache-Control", "public, max-age=86400")
                 self.end_headers()
                 self.wfile.write(data); return
+            if pth == "/search":
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("q", [""])[0]
+                return self._json(200, {"ok": True, "results": library_search(q)})
+            if pth == "/note":
+                slug = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", [""])[0]
+                title, md = note_markdown(slug)
+                if md is None:
+                    return self._json(404, {"ok": False, "msg": "note not found"})
+                return self._json(200, {"ok": True, "title": title, "md": md})
             if pth not in ("/", "/index.html"):
                 return self._json(404, {"ok": False})
             page, _ = make_html(date, live=True)
