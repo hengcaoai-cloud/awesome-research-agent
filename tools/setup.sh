@@ -22,12 +22,19 @@ if [ -z "$PY" ]; then
 fi
 ok "python3: $("$PY" --version 2>&1)"
 
-# ---- 2. Claude Code (optional but recommended) ----------------------------
-if command -v claude >/dev/null 2>&1; then
-  ok "Claude Code: $(command -v claude)"
+# ---- 2. Agent CLI: Claude Code OR OpenAI Codex ---------------------------
+AGENT="${RESEARCH_AGENT_LLM:-claude}"
+if command -v "$AGENT" >/dev/null 2>&1; then
+  ok "Agent CLI ($AGENT): $(command -v "$AGENT")"
+elif command -v claude >/dev/null 2>&1; then
+  ok "Agent CLI: claude   (default; or set RESEARCH_AGENT_LLM=codex)"
+elif command -v codex >/dev/null 2>&1; then
+  ok "Agent CLI: codex    (set RESEARCH_AGENT_LLM=codex to use it)"
 else
-  warn "Claude Code CLI not found. The free parts (fetch, sync, graph) still work,"
-  warn "but Q&A, value cards and deep reads need it → https://www.anthropic.com/claude-code"
+  warn "No agent CLI found. The free parts (fetch, sync, graph) still work, but Q&A,"
+  warn "value cards and deep reads need one of:"
+  warn "  Claude Code  → https://www.anthropic.com/claude-code   (default)"
+  warn "  OpenAI Codex → https://developers.openai.com/codex     (RESEARCH_AGENT_LLM=codex)"
 fi
 
 # ---- 3. Zotero database ---------------------------------------------------

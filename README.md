@@ -78,7 +78,7 @@ read**, the original **PDF** side-by-side, and **👍 / 👎 / ➕** actions.*
 |---|---|---|
 | **Python 3.9+** | runs the tools | stdlib only — no packages to install |
 | **Zotero 7+** | your paper library | desktop app, free — <https://www.zotero.org> |
-| **Claude Code** | the agent | <https://www.anthropic.com/claude-code> |
+| **Claude Code** *or* **OpenAI Codex** | the agent (Q&A, value cards, deep reads) | [Claude Code](https://www.anthropic.com/claude-code) · [Codex](https://developers.openai.com/codex) — pick one (see [below](#-choose-your-agent-claude-code-or-openai-codex)) |
 | Obsidian *(optional)* | nicer reading of the vault | <https://obsidian.md> |
 | `S2_API_KEY` *(optional)* | higher Semantic Scholar rate limits | free key: <https://www.semanticscholar.org/product/api> |
 
@@ -199,7 +199,8 @@ Auto-routes into a fixed collection (default `Recommend`) — no clicking in Zot
 | `ZOTERO_DIR` | `~/Zotero` | folder containing `zotero.sqlite` |
 | `PAPER_ROOT` | `~/Paper` | the vault/project folder (used by the scheduled job) |
 | `S2_API_KEY` | – | Semantic Scholar API key (optional, better recs) |
-| `PAPER_AGENT_LLM` | `0` | `1` lets the daily job use Claude Code for cards/plan |
+| `PAPER_AGENT_LLM` | `0` | `1` lets the daily job call the agent for cards/plan |
+| `RESEARCH_AGENT_LLM` | `claude` | which agent CLI the tools use: `claude` or `codex` |
 
 ### Your interests — `.interests.yaml`
 
@@ -210,6 +211,34 @@ from your library every run (highlighted papers count more), so just by reading 
 highlighting in Zotero you steer it. Edit freely — it's a living profile.
 
 ---
+
+## 🤖 Choose your agent: Claude Code or OpenAI Codex
+
+The reasoning (Q&A, value cards, deep reads, digests) is done by an agent CLI. This
+project works with **either** [Claude Code](https://www.anthropic.com/claude-code)
+(default) or [OpenAI Codex](https://developers.openai.com/codex) — the Python tools
+call whichever you choose via `RESEARCH_AGENT_LLM`. Everything else (fetch, scoring,
+graph, Zotero) is identical.
+
+**Claude Code (default):** nothing to set. Instructions live in `CLAUDE.md`; the four
+slash commands are in `.claude/commands/`.
+
+**OpenAI Codex:**
+```bash
+export RESEARCH_AGENT_LLM=codex      # tools now call `codex exec` instead of `claude -p`
+```
+- **Instructions:** Codex reads **`AGENTS.md`** (shipped — it mirrors `CLAUDE.md`).
+- **Slash commands:** Codex loads personal prompts from `~/.codex/prompts/`. Reuse
+  this repo's commands:
+  ```bash
+  mkdir -p ~/.codex/prompts
+  ln -s "$PWD/.claude/commands/"*.md ~/.codex/prompts/   # → /papers /ask /research /sync-vault
+  ```
+- Then run `codex` in the project folder and use `/papers`, `/ask …`, etc.
+
+Set `RESEARCH_AGENT_LLM` in your shell **and** in the scheduled job's environment so
+`digest_cards.py`, the graph's deep-read button, and `daily.sh` / `weekly.sh` all use
+your chosen agent.
 
 ## 🗂️ Project layout
 

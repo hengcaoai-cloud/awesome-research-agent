@@ -13,15 +13,15 @@ import argparse
 import json
 import os
 import re
-import shutil
-import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import llm  # provider-agnostic agent CLI (Claude Code or OpenAI Codex)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INBOX = os.path.join(ROOT, "Inbox")
 LAST = os.path.join(INBOX, ".last_fetch.json")
 DIGEST = os.path.join(INBOX, ".digest.json")
-CLAUDE = shutil.which("claude") or "claude"
 
 PROMPT_HEAD = """You are triaging freshly fetched papers for a researcher whose focus is
 embodied AI — embodied foundation models (world models / WAM, VLA), representation
@@ -90,13 +90,10 @@ def main():
         lines.append(f"[{i}] id={p.get('id')} | {p.get('title','')}\nAbstract: {ab}\n")
     prompt = PROMPT_HEAD + "\n".join(lines)
 
-    print(f"generating {len(todo)} card(s) via claude…", file=sys.stderr)
-    try:
-        r = subprocess.run([CLAUDE, "-p", prompt], cwd=ROOT,
-                           capture_output=True, text=True, timeout=600)
-    except Exception as e:
-        sys.exit(f"claude failed: {e}")
-    out = r.stdout or ""
+    print(f"generating {len(todo)} card(s) via {llm.cli_name()}…", file=sys.stderr)
+    ok, out = llm.complete(prompt)
+    if not ok:
+        sys.exit(out)
     m = re.search(r"\[\s*\{.*\}\s*\]", out, re.S)
     if not m:
         sys.exit("could not parse a JSON array from claude output:\n" + out[:400])

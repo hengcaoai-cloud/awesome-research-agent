@@ -41,7 +41,8 @@ LIT = os.path.join(ROOT, "Literature")
 DAILY = os.path.join(ROOT, "Daily")
 PDFCACHE = os.path.join(INBOX, ".pdfcache")
 PY = sys.executable or "python3"
-CLAUDE = shutil.which("claude") or "claude"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import llm  # provider-agnostic agent CLI (Claude Code or OpenAI Codex)
 
 # Deep-read template (the user's 6-section method-analysis prompt). Filled with the
 # PDF path and run via `claude -p` on demand from the value card.
@@ -811,16 +812,11 @@ def run_deepread(arxiv_id):
     if not text:
         return False, "could not fetch the paper's HTML full text from arXiv"
     prompt = DEEP_PROMPT.format(text=text[:60000])
-    try:
-        r = subprocess.run([CLAUDE, "-p", prompt],
-                           cwd=ROOT, capture_output=True, text=True, timeout=600)
-    except subprocess.TimeoutExpired:
-        return False, "deep read timed out (>10 min)"
-    except Exception as e:
-        return False, f"claude failed: {e}"
-    deep = (r.stdout or "").strip()
-    if r.returncode != 0 or len(deep) < 40:
-        return False, (r.stderr or "claude returned no analysis").strip()[:200]
+    ok, deep = llm.complete(prompt)
+    if not ok:
+        return False, deep
+    if len(deep) < 40:
+        return False, "agent returned no analysis"
     # persist into the digest so it survives reloads
     p = os.path.join(INBOX, ".digest.json")
     try:

@@ -9,8 +9,16 @@ WK="$(date +%G-W%V)"
 LOG="Research/weekly/${WK}.md"
 mkdir -p Research/weekly
 
-# the 07:00 daily run already synced + fetched today; go straight to synthesis
-if command -v claude >/dev/null; then
-  claude -p "/research weekly" --permission-mode acceptEdits >> "Daily/$(date +%Y-%m-%d).md" 2>&1 || \
-    print "(weekly digest skipped: claude headless failed)" >> "Daily/$(date +%Y-%m-%d).md"
+# the 07:00 daily run already synced + fetched today; go straight to synthesis.
+# Provider-agnostic: RESEARCH_AGENT_LLM=claude|codex (default claude).
+AGENT="${RESEARCH_AGENT_LLM:-claude}"
+DAYLOG="Daily/$(date +%Y-%m-%d).md"
+if command -v "$AGENT" >/dev/null; then
+  if [[ "$AGENT" == "codex" ]]; then
+    codex exec --sandbox read-only "Read AGENTS.md, then write this week's research synthesis (what moved in my fields + 2-3 directions to consider) and save it to $LOG." >> "$DAYLOG" 2>&1 || \
+      print "(weekly digest skipped: codex failed)" >> "$DAYLOG"
+  else
+    claude -p "/research weekly" --permission-mode acceptEdits >> "$DAYLOG" 2>&1 || \
+      print "(weekly digest skipped: claude failed)" >> "$DAYLOG"
+  fi
 fi

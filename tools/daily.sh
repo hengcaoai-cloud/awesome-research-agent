@@ -24,19 +24,25 @@ print "\n=== paper-agent run $(date) ===" >> "$LOG"
 print "\n## Fetched $(date +%H:%M)\n" >> "$LOG"
 "$PY" tools/fetch.py >> "$LOG" 2>&1
 
-# 4  auto-generate value cards (problem/innovation/directions) for the new batch,
-#    then render the interactive knowledge graph — so cards are ready every day.
-if command -v claude >/dev/null; then
+# 4  auto-generate value cards + render the graph (provider-agnostic via tools/llm.py;
+#    pick the agent with RESEARCH_AGENT_LLM=claude|codex, default claude).
+AGENT="${RESEARCH_AGENT_LLM:-claude}"
+if command -v "$AGENT" >/dev/null; then
   "$PY" tools/digest_cards.py >> "$LOG" 2>&1 || \
-    print "(digest_cards skipped: claude headless failed)" >> "$LOG"
+    print "(digest_cards skipped: $AGENT failed)" >> "$LOG"
 fi
 "$PY" tools/viz.py >> "$LOG" 2>&1 || true
 
 # 5  optional agentic reading plan
-if [[ "${PAPER_AGENT_LLM:-0}" == "1" ]] && command -v claude >/dev/null; then
+if [[ "${PAPER_AGENT_LLM:-0}" == "1" ]] && command -v "$AGENT" >/dev/null; then
   print "\n## Reading plan\n" >> "$LOG"
-  claude -p "/papers digest" --permission-mode acceptEdits >> "$LOG" 2>&1 || \
-    print "(papers digest skipped: claude headless failed)" >> "$LOG"
+  if [[ "$AGENT" == "codex" ]]; then
+    codex exec --sandbox read-only "Read AGENTS.md and today's Inbox/*.md stubs, then write a short prioritized reading plan grouped by my interest areas." >> "$LOG" 2>&1 || \
+      print "(reading plan skipped: codex failed)" >> "$LOG"
+  else
+    claude -p "/papers digest" --permission-mode acceptEdits >> "$LOG" 2>&1 || \
+      print "(reading plan skipped: claude failed)" >> "$LOG"
+  fi
 fi
 
 print "\n=== done $(date) ===" >> "$LOG"
