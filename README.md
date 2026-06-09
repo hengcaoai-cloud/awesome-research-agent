@@ -1,326 +1,128 @@
-# 📚🛰️ Research Agent — Zotero × Obsidian × Claude Code
+# 📚🛰️ Research Agent · 科研论文智能体
 
-Turn your **Zotero** library and your own highlights into a personal research
-assistant that **fetches new papers every day, ranks them to your taste, explains
-each one, answers questions grounded in your library, and shows it all as an
-interactive "galaxy" knowledge graph** — right in your terminal and browser.
+把你的 **Zotero 文献库**变成一个每天**自动追新论文、按你口味排序、逐篇讲解、并基于你自己的库回答问题**的科研助手——所有结果以一张可交互的「宇宙星空」知识图谱呈现。
 
-It is powered by [**Claude Code**](https://www.anthropic.com/claude-code) (the
-agent does the reasoning) and a handful of **dependency-free Python scripts**
-(stdlib only — nothing to `pip install`). Your Zotero database is read **read-only**;
-the agent never modifies it.
+由 [Claude Code](https://www.anthropic.com/claude-code) 或 [OpenAI Codex](https://developers.openai.com/codex) 驱动，外加几个**零依赖的 Python 脚本**（纯标准库，无需 `pip install`）。**只读**访问 Zotero，绝不改动你的库。
 
-> New to these tools? **Zotero** is a free reference manager (your paper library).
-> **Obsidian** is a free Markdown notes app. **Claude Code** is Anthropic's CLI
-> coding/agent tool. You need Zotero + Claude Code; Obsidian is optional (the notes
-> are plain Markdown you can read in any editor).
+📖 中文 ·  [English](README.en.md)
 
-![The interactive knowledge graph](docs/graph.png)
+![交互知识图谱](docs/graph.png)
 
-*The interactive knowledge graph (`tools/viz.py --serve`): today's recommendations
-linked to your interest **areas** and the **library papers** they share concepts
-with, over an animated galaxy. Click any paper for its value card, a full **deep
-read**, the original **PDF** side-by-side, and **👍 / 👎 / ➕** actions.*
+*交互知识图谱（`tools/viz.py --serve`）：今天推荐的论文连到你的兴趣**领域**和库中**相关论文**，背景是缓缓旋转的星系。点任意论文看价值卡片、生成**深度精读**、并排查看**原版 PDF**、用 **👍 / 👎 / ➕** 调教推荐。*
+
+> 不熟悉这些工具？**Zotero** = 免费文献管理器（你的论文库）；**Obsidian** = 免费 Markdown 笔记软件（可选）；**Claude Code / Codex** = 命令行 AI 智能体。你需要 Zotero ＋ 其中一个智能体即可。
 
 ---
 
-## ✨ What you get
+## ✨ 能做什么
 
-- **Daily paper recall** — pulls the newest relevant arXiv papers + Semantic Scholar
-  recommendations seeded by *your* library, scored against your interests, deduped
-  against what you already have.
-- **Auto value cards** — every recommended paper gets a *Problem / Innovation /
-  Potential directions* card generated automatically.
-- **Interactive knowledge graph** — a self-contained HTML page with an animated
-  galaxy background. Each paper links to your interest **areas** and to the specific
-  **library papers it shares concepts with**. Click a node to read its value card,
-  generate a full **deep read**, view the **original PDF** side-by-side, and give
-  **👍 / 👎 feedback** that steers tomorrow's recommendations.
-- **Grounded Q&A** — ask questions and get answers cited to your own notes and
-  highlights, never invented.
-- **Deep paper digests** — a 6-section method-focused analysis of any paper.
-- **Research synthesis** — mine open problems, generate novel ideas, weekly digests.
-- **Learns your taste** — feedback + your Zotero highlights continuously retune what
-  it surfaces.
+- 🛰️ **每日追新** — 从 arXiv（最新）+ Semantic Scholar（按你库推荐）拉论文，按你的兴趣打分排序，自动和已有的去重。
+- 🃏 **自动价值卡片** — 每篇生成「解决的问题 / 创新点 / 潜在方向」。
+- 🌌 **交互知识图谱** — 自包含网页，论文连到你的兴趣领域和库中相关论文；可看卡片、生成精读、并排原版 PDF、点赞/点踩调教推荐。
+- 💬 **基于你的库问答** — 答案引用你自己的笔记和高亮，绝不编造。
+- 🔬 **深度精读** — 任意论文的 6 段式方法分析（动机/设计/对比/实验/复现/总结）。
+- 🧭 **科研综合** — 挖掘开放问题、生成新点子、每周综述。
+- 🎯 **越用越懂你** — 反馈 + 你在 Zotero 的高亮，持续调整推荐方向。
 
----
+## 🧰 前置条件
 
-## 🧩 How it works (architecture)
-
-```
-        ┌─────────────┐   read-only    ┌──────────────────────────┐
-        │   Zotero    │ ─────────────▶ │ tools/*.py (stdlib only) │
-        │ (your lib)  │  zotero.sqlite │  fetch · sync · score ·  │
-        └─────────────┘   (immutable)  │  graph · feedback        │
-                                        └────────────┬─────────────┘
-   arXiv + Semantic Scholar ───────────────────────▶ │ writes Markdown + JSON
-                                                      ▼
-   ┌───────────────────────────────────────────────────────────────────┐
-   │  The vault (plain Markdown — open in Obsidian or any editor)        │
-   │  Literature/  Topics/  Inbox/  Daily/  Research/                    │
-   └───────────────────────────────────────────────────────────────────┘
-                                                      ▲
-        ┌─────────────┐  /papers /ask /research      │ reasoning, summaries,
-        │ Claude Code │ ─────────────────────────────┘ deep reads, value cards
-        └─────────────┘
-```
-
-- The **Python tools** do all the deterministic work (DB reads, fetching, scoring,
-  graph rendering) and need no API key.
-- **Claude Code** is the brain for anything that requires understanding: answering
-  questions, writing digests/value cards, idea generation.
-
----
-
-## ✅ Prerequisites
-
-| Requirement | Why | Notes |
+| 需要 | 用途 | 说明 |
 |---|---|---|
-| **Python 3.9+** | runs the tools | stdlib only — no packages to install |
-| **Zotero 7+** | your paper library | desktop app, free — <https://www.zotero.org> |
-| **Claude Code** *or* **OpenAI Codex** | the agent (Q&A, value cards, deep reads) | [Claude Code](https://www.anthropic.com/claude-code) · [Codex](https://developers.openai.com/codex) — pick one (see [below](#-choose-your-agent-claude-code-or-openai-codex)) |
-| Obsidian *(optional)* | nicer reading of the vault | <https://obsidian.md> |
-| `S2_API_KEY` *(optional)* | higher Semantic Scholar rate limits | free key: <https://www.semanticscholar.org/product/api> |
+| **Python 3.9+** | 跑脚本 | 纯标准库，无需安装任何包 |
+| **Zotero 7+** | 你的文献库 | 免费桌面应用 · <https://www.zotero.org> |
+| **Claude Code** 或 **OpenAI Codex** | 智能体（问答/卡片/精读） | 二选一，见[下文](#-选择智能体claude-code-或-codex) |
+| Obsidian（可选） | 更舒服地读笔记 | <https://obsidian.md> |
 
-**Enable the Zotero connector (needed only to *save* papers into Zotero):**
-Zotero → Settings → Advanced → check *"Allow other applications on this computer to
-communicate with Zotero."* (Reading your library does **not** need this.)
+> 想把论文**保存进 Zotero**（含 PDF）时，需开启：Zotero → 设置 → 高级 → 勾选「允许其他应用与 Zotero 通信」。只读你的库**不需要**这一步。
 
-Works on **macOS / Linux / Windows** for manual use. The scheduled daily job ships
-with a one-command installer for **macOS (launchd)**; a **cron** snippet is provided
-for Linux.
-
----
-
-## 🚀 Quick start
+## 🚀 快速开始
 
 ```bash
-# 1. Clone
+# 1. 克隆
 git clone https://github.com/hengcaoai-cloud/awesome-research-agent.git ~/Paper
 cd ~/Paper
 
-# 2. (optional) tell it where Zotero lives, if not the default ~/Zotero
+# 2.（可选）指定 Zotero 位置（默认 ~/Zotero）
 export ZOTERO_DIR="$HOME/Zotero"
-# export S2_API_KEY="..."   # optional, for better recommendations
 
-# 3. Run the guided setup (checks prerequisites, builds your notes from Zotero)
+# 3. 一键初始化（检查依赖 + 从 Zotero 生成笔记）
 bash tools/setup.sh
 
-# 4. Fetch today's papers + auto-generate value cards
+# 4. 拉今天的论文 + 自动生成价值卡片
 python3 tools/fetch.py
-python3 tools/digest_cards.py     # needs Claude Code; fills the value cards
+python3 tools/digest_cards.py        # 需要 Claude Code 或 Codex
 
-# 5. Open the interactive knowledge graph (with live 👍/👎 + PDF + deep-read)
-python3 tools/viz.py --serve      # opens http://127.0.0.1:8765
+# 5. 打开交互知识图谱（含 👍/👎、PDF、深度精读）
+python3 tools/viz.py --serve          # → http://127.0.0.1:8765
 ```
 
-Then point Claude Code at the folder and try a command:
+然后在项目目录里运行智能体：
 
 ```bash
-cd ~/Paper && claude
-# inside Claude Code:
-/papers          # fetch + digest today's papers
-/ask  what are the open problems in world models?
+cd ~/Paper && claude         # 或：codex
+# 试试：  /papers          抓取并整理今天的论文
+#         /ask 世界模型有哪些开放问题？
 ```
 
-> **Tip:** Open `~/Paper` as a vault in Obsidian to browse `Literature/` and
-> `Topics/` with backlinks and graph view.
+> 用 **Obsidian** 打开 `~/Paper` 即可浏览 `Literature/`、`Topics/`（带反链与关系图）。
 
----
+## 🕹️ 四个核心命令
 
-## ⏰ Daily automation (optional but recommended)
-
-Have it fetch, rank, write value cards and render the graph **every morning**.
-
-**macOS (launchd) — one command:**
-
-```bash
-bash tools/install_schedule.sh        # daily 07:00 + weekly Sun 07:30
-# remove later with:  bash tools/install_schedule.sh --uninstall
-```
-
-**Linux (cron):**
-
-```bash
-crontab -e
-# add (adjust the path):
-0 7 * * *   cd $HOME/Paper && PAPER_AGENT_LLM=1 /bin/bash tools/daily.sh
-30 7 * * 0  cd $HOME/Paper && /bin/bash tools/weekly.sh
-```
-
-`PAPER_AGENT_LLM=1` lets the job call Claude Code for value cards + the reading
-plan. Without it, you still get the ranked fetch (free, no tokens).
-
----
-
-## 🕹️ Using it
-
-### Slash commands (in Claude Code) — 4 hubs
-
-| Command | What it does |
+| 命令 | 作用 |
 |---|---|
-| `/papers [fetch\|digest\|triage\|keep <id>\|drop <id>]` | the daily paper flow: fetch → value cards + graph → clickable triage; `keep`/`drop` teach the recommender |
-| `/ask <question \| paper \| connect [theme]>` | answer grounded in your library; or digest one paper (with citation lineage); or surface non-obvious links |
-| `/research [gaps\|ideas\|weekly]` | mine open problems · propose novel directions · weekly synthesis (saved to `Research/`) |
-| `/sync-vault` | rebuild the notes + topic maps from Zotero |
+| `/papers [fetch｜digest｜triage｜keep <id>｜drop <id>]` | 每日论文流：抓取 → 价值卡片＋图谱 → 一键反馈；`keep`/`drop` 调教推荐 |
+| `/ask <问题 ｜ 某篇论文 ｜ connect [主题]>` | 基于库问答 / 精读单篇（含引用脉络）/ 找跨论文关联 |
+| `/research [gaps｜ideas｜weekly]` | 挖开放问题 · 出新点子 · 每周综述（存到 `Research/`） |
+| `/sync-vault` | 从 Zotero 重建笔记与主题地图 |
 
-### The knowledge graph (`tools/viz.py`)
+## 🤖 选择智能体：Claude Code 或 Codex
 
-```bash
-python3 tools/viz.py            # write a static Daily/<date>-graph.html
-python3 tools/viz.py --serve    # live server with feedback + PDF + deep read
-```
+两者皆可，用 `RESEARCH_AGENT_LLM` 切换，其余功能完全一致。
 
-In the live graph, click any **paper node** (solid dot) to:
-- read its **value card** (problem / innovation / directions),
-- **🔬 Generate deep read** — fetches the paper's full text and writes a detailed
-  6-section method analysis (with rendered math),
-- **📄 Show original** — embeds the real arXiv **PDF** beside the analysis,
-- **👍 / 👎 / ➕** — teach the recommender, or save the paper (with PDF) to Zotero.
-
-Hollow rings = papers already in your library; large nodes = your interest areas.
-
-### Saving papers to Zotero
-
-```bash
-python3 tools/zotero_add.py 2606.05979            # → 'Recommend' collection, with PDF
-python3 tools/zotero_add.py 2606.05979 --collection "VLA"
-```
-Auto-routes into a fixed collection (default `Recommend`) — no clicking in Zotero.
-
----
-
-## ⚙️ Configuration
-
-### Environment variables
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `ZOTERO_DIR` | `~/Zotero` | folder containing `zotero.sqlite` |
-| `PAPER_ROOT` | `~/Paper` | the vault/project folder (used by the scheduled job) |
-| `S2_API_KEY` | – | Semantic Scholar API key (optional, better recs) |
-| `PAPER_AGENT_LLM` | `0` | `1` lets the daily job call the agent for cards/plan |
-| `RESEARCH_AGENT_LLM` | `claude` | which agent CLI the tools use: `claude` or `codex` |
-
-### Your interests — `.interests.yaml`
-
-This file tunes what gets surfaced. Add/raise `boost:` keywords, add `mute:` terms
-to suppress topics, set `arxiv_categories:`, and tune the quotas (`top_arxiv`,
-`top_s2`, `min_score`, `lookback_days`). The fetcher **also** learns automatically
-from your library every run (highlighted papers count more), so just by reading and
-highlighting in Zotero you steer it. Edit freely — it's a living profile.
-
----
-
-## 🤖 Choose your agent: Claude Code or OpenAI Codex
-
-The reasoning (Q&A, value cards, deep reads, digests) is done by an agent CLI. This
-project works with **either** [Claude Code](https://www.anthropic.com/claude-code)
-(default) or [OpenAI Codex](https://developers.openai.com/codex) — the Python tools
-call whichever you choose via `RESEARCH_AGENT_LLM`. Everything else (fetch, scoring,
-graph, Zotero) is identical.
-
-**Claude Code (default):** nothing to set. Instructions live in `CLAUDE.md`; the four
-slash commands are in `.claude/commands/`.
-
-**OpenAI Codex:**
-```bash
-export RESEARCH_AGENT_LLM=codex      # tools now call `codex exec` instead of `claude -p`
-```
-- **Instructions:** Codex reads **`AGENTS.md`** (shipped — it mirrors `CLAUDE.md`).
-- **Slash commands:** Codex loads personal prompts from `~/.codex/prompts/`. Reuse
-  this repo's commands:
+- **Claude Code（默认）**：无需设置。指令在 `CLAUDE.md`，命令在 `.claude/commands/`。
+- **OpenAI Codex**：
   ```bash
-  mkdir -p ~/.codex/prompts
-  ln -s "$PWD/.claude/commands/"*.md ~/.codex/prompts/   # → /papers /ask /research /sync-vault
+  export RESEARCH_AGENT_LLM=codex
+  mkdir -p ~/.codex/prompts && ln -s "$PWD/.claude/commands/"*.md ~/.codex/prompts/
+  codex                                # 在项目目录里运行
   ```
-- Then run `codex` in the project folder and use `/papers`, `/ask …`, etc.
+  Codex 读取 `AGENTS.md`（已附带，镜像 `CLAUDE.md`）。
 
-Set `RESEARCH_AGENT_LLM` in your shell **and** in the scheduled job's environment so
-`digest_cards.py`, the graph's deep-read button, and `daily.sh` / `weekly.sh` all use
-your chosen agent.
+## ⏰ 每天自动跑（可选）
 
-## 🗂️ Project layout
+- **macOS**：`bash tools/install_schedule.sh`（每天 07:00 ＋ 周日 07:30；`--uninstall` 卸载）
+- **Linux**：`crontab -e` 加一行
+  ```
+  0 7 * * *  cd $HOME/Paper && PAPER_AGENT_LLM=1 /bin/bash tools/daily.sh
+  ```
+
+## ⚙️ 配置
+
+- **`.interests.yaml`** — 调你的兴趣：`boost` 加权关键词、`mute` 屏蔽词、`arxiv_categories`、配额（`top_arxiv`/`top_s2`/`min_score`）。每次抓取还会**自动从你的库学习**（高亮过的论文权重更高），所以只要在 Zotero 读和高亮就能引导它。
+- **环境变量**：`ZOTERO_DIR`（Zotero 位置）、`S2_API_KEY`（可选，更好的推荐）、`RESEARCH_AGENT_LLM`（`claude`／`codex`）。
+
+## 🗂️ 目录结构
 
 ```
 Paper/
-├── CLAUDE.md            # instructions the agent follows (the "system prompt")
-├── .interests.yaml      # your interest profile for the fetcher (edit me)
-├── tools/               # all the Python tools (stdlib only) + shell scripts
-│   ├── zotero_read.py   #   read-only Zotero access (immutable sqlite)
-│   ├── lit_note.py      #   Zotero → Markdown notes + topic maps
-│   ├── fetch.py         #   daily recall (arXiv + Semantic Scholar), scored
-│   ├── paperlib.py      #   shared fetch/scoring logic
-│   ├── digest_cards.py  #   auto value cards (problem/innovation/directions)
-│   ├── viz.py           #   interactive knowledge-graph server
-│   ├── zotero_add.py    #   save a paper (+PDF) to Zotero via the connector
-│   ├── s2_graph.py      #   citation lineage + frontier
-│   ├── feedback.py      #   keep/drop signals that retune recall
-│   ├── daily.sh / weekly.sh        # the scheduled jobs
-│   └── setup.sh / install_schedule.sh
-├── .claude/commands/    # the 4 slash commands
-├── Literature/          # one Markdown note per paper  (generated; gitignored)
-├── Topics/              # one map-of-content per Zotero collection (generated)
-├── Inbox/               # freshly fetched candidates + agent state (generated)
-├── Daily/               # daily logs + reading plans + graphs (generated)
-└── Research/            # gaps / ideas / weekly outputs (generated)
+├── CLAUDE.md / AGENTS.md  # 智能体指令（Claude Code / Codex）
+├── .interests.yaml        # 你的兴趣画像（改我）
+├── tools/                 # 全部 Python 工具（纯标准库）+ 脚本
+├── .claude/commands/      # 4 个 slash 命令
+├── Literature/  Topics/   # 论文笔记 / 主题地图（自动生成）
+├── Inbox/  Daily/         # 待筛论文 + 状态 / 每日日志与图谱（自动生成）
+└── Research/              # gaps / ideas / weekly 输出（自动生成）
 ```
 
-The `Literature/ Topics/ Inbox/ Daily/ Research/` folders are **your personal data**
-and are git-ignored — a fresh clone starts empty and fills as you use it.
+`Literature/ Topics/ Inbox/ Daily/ Research/` 是**你的个人数据**，已被 `.gitignore` 排除——克隆是空的，用起来才填充。
 
----
+## 🔐 隐私与安全
 
-## 🔐 Privacy & safety
-
-- **Zotero is read-only.** Tools open `zotero.sqlite` with `immutable=1` and never
-  write to it — safe even while Zotero is running.
-- **Saving** papers (`zotero_add.py` / the ➕ button) is the only thing that writes,
-  and it goes through Zotero's own connector with your permission.
-- The graph server binds to **`127.0.0.1`** (localhost only).
-- Your library content stays local. Claude Code sends only what's needed for a given
-  request (an abstract, a question) to Anthropic — review Anthropic's data policy.
-- `.gitignore` keeps your personal notes, PDFs and state **out of git** by default.
-
----
-
-## 🧪 Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| `zotero.sqlite not found` | set `ZOTERO_DIR` to your Zotero data folder |
-| Recommendations feel off / sparse | edit `.interests.yaml`; set `S2_API_KEY`; use 👍/👎 |
-| `zotero_add` says connector not reachable | enable the connector toggle (see Prerequisites) and keep Zotero open |
-| Value cards / deep read fail | make sure `claude` (Claude Code) is installed and on `PATH` |
-| Graph shows no papers | run `python3 tools/fetch.py` first |
-| Saved paper has no PDF | the paper may have no arXiv PDF; check the id |
-
----
-
-## 🌱 Extending
-
-- Add a new slash command: drop a Markdown file in `.claude/commands/`.
-- Change the graph's interest **areas**: edit `AREAS` in `tools/viz.py`.
-- `/research ideas` uses the optional Claude Code skills *idea-generation* and
-  *novelty-assessment* if installed; it degrades gracefully without them.
-
----
-
-## 📦 Publishing your own copy
-
-```bash
-cd ~/Paper
-git init && git add . && git commit -m "Research agent"
-git branch -M main
-git remote add origin https://github.com/<you>/research-agent.git
-git push -u origin main
-```
-The `.gitignore` already excludes your personal library data, caches and logs.
-
----
+- **Zotero 只读**：以 `immutable` 模式打开 `zotero.sqlite`，绝不写入（Zotero 开着也安全）。
+- **保存**论文是唯一的写操作，且经 Zotero 官方连接器、由你授权。
+- 图谱服务只绑定 **`127.0.0.1`**（仅本机）。
+- `.gitignore` 默认把你的笔记、PDF、状态都挡在 git 之外。
 
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE). Built on top of [Claude Code](https://www.anthropic.com/claude-code),
-[Zotero](https://www.zotero.org), [arXiv](https://arxiv.org) and
-[Semantic Scholar](https://www.semanticscholar.org).
+MIT，见 [LICENSE](LICENSE)。基于 [Claude Code](https://www.anthropic.com/claude-code) / [Codex](https://developers.openai.com/codex)、[Zotero](https://www.zotero.org)、[arXiv](https://arxiv.org)、[Semantic Scholar](https://www.semanticscholar.org)。
