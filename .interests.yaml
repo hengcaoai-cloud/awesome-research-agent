@@ -1,0 +1,120 @@
+# Interest profile for the fetcher.
+# The fetcher ALSO learns keywords automatically from your Zotero library every
+# run (papers you highlighted count more), and S2 recommendations are seeded by
+# your library. This file tunes on top. The agent updates it as your interests
+# shift in conversation — edit freely.
+
+# ---- Your research areas (2026-06, calibrated to your Zotero) -------------
+# Embodied foundation models: WAM (world-action models), VLA, and related (core)
+# Representation learning (primary focus), esp. for embodied AI: self-supervised /
+#   JEPA / MAE / representation autoencoders, latent & action-centric representations,
+#   pretrained visual/sensorimotor representations for control, world-model reps —
+#   what objective/structure yields the most useful features.
+# 3D / 4D vision (primary focus): visual geometry, point clouds, scene/optical flow,
+#   dynamic-scene & 4D reconstruction, neural rendering / Gaussian splatting, spatial
+#   intelligence/reasoning.
+# Robotics: manipulation, tactile / contact-rich, dexterous.
+# Vision / MLLM / generative: multimodal LLMs, vision FMs, diffusion & flow-matching
+#   generative models, video/image generation (tracked as tools, not the core goal).
+
+arxiv_categories:
+  - cs.RO    # Robotics
+  - cs.CV    # Computer Vision
+  - cs.LG    # Machine Learning
+  - cs.AI    # Artificial Intelligence
+  - cs.CL    # Computation & Language (LLM)
+
+# Boost keywords (matched in title/abstract). Weight multiplies relevance.
+boost:
+  world model: 3.5
+  world action model: 4.0
+  WAM: 3.5
+  vision-language-action: 3.5
+  VLA: 3.5
+  embodied foundation model: 4.0
+  embodied: 2.5
+  tactile: 3.0
+  contact-rich: 2.5
+  dexterous: 2.0
+  manipulation: 2.0
+  diffusion policy: 1.5
+  # --- representation learning (primary focus, esp. embodied) ---
+  representation learning: 3.5
+  self-supervised: 3.0
+  masked autoencoder: 3.0
+  jepa: 3.5
+  joint embedding: 3.0
+  representation autoencoder: 3.0
+  action representation: 3.5
+  action-centric representation: 3.5
+  latent action: 3.5
+  representation for action: 3.5
+  representation for control: 3.5
+  representation for policy: 3.0
+  pretrained visual representation: 3.0
+  visual representation: 2.8
+  sensorimotor representation: 3.0
+  state representation: 2.5
+  # --- 3D / 4D vision (primary focus) ---
+  3d scene: 2.5
+  point cloud: 3.0
+  scene flow: 3.0
+  optical flow: 2.5
+  dynamic scene: 3.0
+  4d reconstruction: 3.5
+  reconstruction: 2.0
+  neural rendering: 3.0
+  gaussian splatting: 3.5
+  nerf: 2.5
+  novel view: 2.5
+  visual geometry: 3.0
+  depth estimation: 2.0
+  spatial intelligence: 3.0
+  spatial reasoning: 2.5
+  # --- vision / MLLM / generative (tools) ---
+  multimodal large language model: 2.5
+  vision foundation model: 2.5
+  flow matching: 2.0
+  video generation: 2.0
+  robot: 1.2
+  foundation model: 1.5
+
+# Hard mutes: drop candidates containing these.
+mute:
+  - survey
+  - autonomous driving
+  - medical imaging
+  - recommendation system
+
+# Pipeline knobs
+max_candidates: 240    # arxiv papers scanned per run (split across categories)
+top_arxiv: 8           # fresh arXiv papers surfaced per run (today's newest)
+top_s2: 6              # interest-adaptive S2 recommendations surfaced per run
+min_score: 1.5         # drop below this relevance
+lookback_days: 3       # arxiv freshness window
+
+# Prefer top-venue + reproducible (has code) papers
+venue_boost: 5.0       # bonus if accepted at a top venue (from arxiv comment / S2 venue)
+code_boost: 3.0        # bonus if code/project page released (github, "we release", etc.)
+top_venues:
+  - CVPR
+  - ICCV
+  - ECCV
+  - NeurIPS
+  - NIPS
+  - ICLR
+  - ICML
+  - CoRL
+  - RSS
+  - ICRA
+  - IROS
+  - AAAI
+  - ACL
+  - EMNLP
+  - SIGGRAPH
+
+# Semantic Scholar recommendations (interest-adaptive recall)
+s2_enabled: 1
+s2_seeds: 40           # library papers used as positive seeds (most-highlighted first)
+s2_limit: 30           # recommendations requested
+s2_bonus: 4.0          # score bonus for S2-recommended papers (they fit your taste)
