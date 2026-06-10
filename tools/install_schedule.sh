@@ -25,8 +25,10 @@ EOF
   exit 0
 fi
 
+WATCH="com.research-agent.watch"
+
 if [ "${1:-}" = "--uninstall" ]; then
-  for L in "$DAILY" "$WEEKLY"; do
+  for L in "$DAILY" "$WEEKLY" "$WATCH"; do
     launchctl unload "$LA/$L.plist" 2>/dev/null
     rm -f "$LA/$L.plist" && echo "removed $L"
   done
@@ -69,12 +71,39 @@ emit_plist "$DAILY" daily.sh '<array>
   </array>'
 emit_plist "$WEEKLY" weekly.sh '<dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer><key>Weekday</key><integer>0</integer></dict>'
 
+# Auto-sync: regenerate notes whenever you ADD a paper to Zotero. WatchPaths fires
+# on DB changes; StartInterval polls every 5 min as a fallback. sync_if_changed.sh
+# is a cheap no-op unless the library actually changed.
+ZDB="${ZOTERO_DIR:-$HOME/Zotero}/zotero.sqlite"
+cat > "$LA/$WATCH.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$WATCH</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>$ROOT/tools/sync_if_changed.sh</string></array>
+  <key>EnvironmentVariables</key><dict>
+    <key>PAPER_ROOT</key><string>$ROOT</string>
+    <key>ZOTERO_DIR</key><string>${ZOTERO_DIR:-$HOME/Zotero}</string>
+    <key>PATH</key><string>$PATHVAL</string>
+  </dict>
+  <key>StartInterval</key><integer>300</integer>
+  <key>WatchPaths</key><array><string>$ZDB</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>$ROOT/Daily/launchd.out.log</string>
+  <key>StandardErrorPath</key><string>$ROOT/Daily/launchd.err.log</string>
+</dict></plist>
+EOF
+launchctl unload "$LA/$WATCH.plist" 2>/dev/null
+launchctl load "$LA/$WATCH.plist" && echo "installed $WATCH"
+
 cat <<EOF
 
 Scheduled:
   • $DAILY  — every day at 07:00 / 13:00 / 20:00 (runs once; catches a laptop that
               was asleep at an earlier slot) → tools/daily.sh
   • $WEEKLY — Sundays 07:30 → tools/weekly.sh
+  • $WATCH  — auto-sync notes whenever you add a paper to Zotero (poll + WatchPaths)
 Logs: $ROOT/Daily/launchd.{out,err}.log
 Remove with:  bash tools/install_schedule.sh --uninstall
 EOF

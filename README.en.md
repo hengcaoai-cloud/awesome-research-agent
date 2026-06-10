@@ -79,7 +79,9 @@ Claude Code reads `CLAUDE.md`; Codex reads `AGENTS.md` (shipped).
 
 - **`.interests.yaml`** — tune boost/mute keywords & categories. The fetcher also learns from your library each run (highlights weigh more).
 - **Env vars** — `ZOTERO_DIR` (default `~/Zotero`), `S2_API_KEY` (optional, better recs).
-- **Daily job** — macOS: `bash tools/install_schedule.sh`; Linux: add `tools/daily.sh` to `crontab`.
+- **Daily job + Zotero auto-sync** — macOS: `bash tools/install_schedule.sh` (daily
+  fetch + value cards, and **watches Zotero so papers you add are auto-synced into
+  notes** — instantly searchable); Linux: add `tools/daily.sh` to `crontab`.
 
 ## 🔐 Privacy
 

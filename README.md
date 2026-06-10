@@ -77,7 +77,9 @@ Claude Code 读 `CLAUDE.md`，Codex 读 `AGENTS.md`（已附带）。
 
 - **`.interests.yaml`** — 调你的兴趣（加权/屏蔽关键词、类别）。每次抓取还会自动从你库里学习（高亮过的权重更高）。
 - **环境变量** — `ZOTERO_DIR`（Zotero 位置，默认 `~/Zotero`）、`S2_API_KEY`（可选，更好的推荐）。
-- **每天自动跑** — macOS：`bash tools/install_schedule.sh`；Linux：把 `tools/daily.sh` 加进 `crontab`。
+- **每天自动跑 + Zotero 自动同步** — macOS：`bash tools/install_schedule.sh`（每日抓取
+  生成卡片，并**监视 Zotero——你一加新论文就自动同步成笔记**，立刻可搜可见）；
+  Linux：把 `tools/daily.sh` 加进 `crontab`。
 
 ## 🔐 隐私
 
