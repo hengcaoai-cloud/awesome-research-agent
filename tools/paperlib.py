@@ -189,37 +189,51 @@ def muted(cand, conf):
 
 # ---------------------------------------------------------------- recall: arXiv
 def arxiv_recall(conf, lookback_cutoff):
+    """Scan each category by paginating newest→oldest until we pass the lookback
+    cutoff. This covers the FULL window even for high-volume categories like cs.CV
+    (a fixed 'newest N' budget only reaches a few hours back there, silently missing
+    relevant older-but-in-window papers)."""
     out = []
-    per = max(10, conf["max_candidates"] // max(1, len(conf["arxiv_categories"])))
+    ns = {"a": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
+    page = 200
+    cap = max(int(conf.get("max_candidates", 240)), 800)   # safety cap scanned per category
     for cat in conf["arxiv_categories"]:
-        url = ("http://export.arxiv.org/api/query?" + urllib.parse.urlencode({
-            "search_query": f"cat:{cat}", "sortBy": "submittedDate",
-            "sortOrder": "descending", "max_results": per}))
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "paper-agent/1.0"})
-            with urllib.request.urlopen(req, timeout=30) as r:
-                root = ET.fromstring(r.read())
-        except Exception as e:
-            print(f"warn: arxiv {cat}: {e}", file=sys.stderr)
-            continue
-        ns = {"a": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
-        for e in root.findall("a:entry", ns):
-            aid = e.find("a:id", ns).text
-            m = re.search(r"(\d{4}\.\d{4,5})", aid)
-            pub = e.find("a:published", ns).text[:10]
-            if pub < lookback_cutoff:
-                continue
-            comment_el = e.find("arxiv:comment", ns)
-            journal_el = e.find("arxiv:journal_ref", ns)
-            out.append({
-                "arxiv": m.group(1) if m else aid,
-                "title": " ".join(e.find("a:title", ns).text.split()),
-                "abstract": " ".join(e.find("a:summary", ns).text.split()),
-                "authors": [a.find("a:name", ns).text for a in e.findall("a:author", ns)],
-                "published": pub, "url": aid,
-                "categories": [c.get("term") for c in e.findall("a:category", ns)],
-                "venue_hint": " ".join(x.text for x in (comment_el, journal_el) if x is not None),
-                "source": "arxiv"})
+        start, stop = 0, False
+        while start < cap and not stop:
+            url = ("http://export.arxiv.org/api/query?" + urllib.parse.urlencode({
+                "search_query": f"cat:{cat}", "sortBy": "submittedDate",
+                "sortOrder": "descending", "start": start, "max_results": min(page, cap - start)}))
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "paper-agent/1.0"})
+                with urllib.request.urlopen(req, timeout=45) as r:
+                    root = ET.fromstring(r.read())
+            except Exception as e:
+                print(f"warn: arxiv {cat} @{start}: {e}", file=sys.stderr)
+                break
+            entries = root.findall("a:entry", ns)
+            if not entries:
+                break
+            for e in entries:
+                aid = e.find("a:id", ns).text
+                m = re.search(r"(\d{4}\.\d{4,5})", aid)
+                pub = e.find("a:published", ns).text[:10]
+                if pub < lookback_cutoff:
+                    stop = True                # descending → the rest are older too
+                    continue
+                comment_el = e.find("arxiv:comment", ns)
+                journal_el = e.find("arxiv:journal_ref", ns)
+                out.append({
+                    "arxiv": m.group(1) if m else aid,
+                    "title": " ".join(e.find("a:title", ns).text.split()),
+                    "abstract": " ".join(e.find("a:summary", ns).text.split()),
+                    "authors": [a.find("a:name", ns).text for a in e.findall("a:author", ns)],
+                    "published": pub, "url": aid,
+                    "categories": [c.get("term") for c in e.findall("a:category", ns)],
+                    "venue_hint": " ".join(x.text for x in (comment_el, journal_el) if x is not None),
+                    "source": "arxiv"})
+            start += page
+            if not stop and start < cap:
+                time.sleep(3)                  # arxiv asks for ~3s between requests
     return out
 
 
