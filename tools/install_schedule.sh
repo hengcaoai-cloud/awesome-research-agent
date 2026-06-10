@@ -35,12 +35,8 @@ fi
 
 mkdir -p "$LA" "$ROOT/Daily"
 
-emit_plist() {  # $1 label  $2 script  $3 hour  $4 minute  [$5 weekday]
-  local label="$1" script="$2" hour="$3" min="$4" wd="${5:-}"
-  local cal="    <key>Hour</key><integer>$hour</integer>
-    <key>Minute</key><integer>$min</integer>"
-  [ -n "$wd" ] && cal="$cal
-    <key>Weekday</key><integer>$wd</integer>"
+emit_plist() {  # $1 label  $2 script  $3 StartCalendarInterval-XML
+  local label="$1" script="$2" cal="$3"
   cat > "$LA/$label.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -54,9 +50,7 @@ emit_plist() {  # $1 label  $2 script  $3 hour  $4 minute  [$5 weekday]
     <key>PATH</key><string>$PATHVAL</string>
     <key>PAPER_AGENT_LLM</key><string>1</string>
   </dict>
-  <key>StartCalendarInterval</key><dict>
-$cal
-  </dict>
+  <key>StartCalendarInterval</key>$cal
   <key>RunAtLoad</key><false/>
   <key>StandardOutPath</key><string>$ROOT/Daily/launchd.out.log</string>
   <key>StandardErrorPath</key><string>$ROOT/Daily/launchd.err.log</string>
@@ -66,14 +60,21 @@ EOF
   launchctl load "$LA/$label.plist" && echo "installed $label"
 }
 
-emit_plist "$DAILY"  daily.sh  7 0
-emit_plist "$WEEKLY" weekly.sh 7 30 0   # Weekday 0 = Sunday
+# Daily at 07:00, 13:00, 20:00 — a laptop asleep at one slot catches a later one;
+# daily.sh runs at most once per day (stamp file), so extra slots are no-ops.
+emit_plist "$DAILY" daily.sh '<array>
+    <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
+  </array>'
+emit_plist "$WEEKLY" weekly.sh '<dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer><key>Weekday</key><integer>0</integer></dict>'
 
 cat <<EOF
 
 Scheduled:
-  • $DAILY  — every day 07:00  → tools/daily.sh
-  • $WEEKLY — Sundays   07:30  → tools/weekly.sh
+  • $DAILY  — every day at 07:00 / 13:00 / 20:00 (runs once; catches a laptop that
+              was asleep at an earlier slot) → tools/daily.sh
+  • $WEEKLY — Sundays 07:30 → tools/weekly.sh
 Logs: $ROOT/Daily/launchd.{out,err}.log
 Remove with:  bash tools/install_schedule.sh --uninstall
 EOF

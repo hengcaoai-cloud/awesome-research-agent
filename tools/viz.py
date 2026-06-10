@@ -640,7 +640,8 @@ function typeset(el){if(window.MathJax&&MathJax.typesetPromise)MathJax.typesetPr
 function md2html(s){
   const e=x=>x.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const inl=t=>e(t).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`(.+?)`/g,'<code>$1</code>')
-    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(m,a,b)=>`<span class="wl" data-note="${a.trim()}">${(b||a).trim()}</span>`);
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,(m,a,b)=>`<span class="wl" data-note="${a.trim()}">${(b||a).trim()}</span>`)
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,'<a href="$2" target="_blank">$1</a>');
   const L=s.replace(/\r/g,'').split('\n');let o=[],i=0;
   while(i<L.length){let ln=L[i];
     if(ln.trim().startsWith('$$')){  // display math (pass raw to MathJax, may span lines)
@@ -710,12 +711,20 @@ window.openNote=function(slug){
   fetch('/note?id='+encodeURIComponent(slug)).then(r=>r.json()).then(j=>{
     if(!j.ok){el.innerHTML='<div class="empty">note not found</div>';return;}
     window._note={slug:slug,below:j.below||''};
-    const ed=j.editable?`<div class="sec"><button class="origbtn" onclick="editNote()">✍️ 写 / 改我的综合</button></div>`:'';
-    el.innerHTML=`<div class="card"><h2>${esc(j.title)}</h2><span class="pill">your library note</span>
-      <div class="md note" id="notemd">${md2html(j.md)}</div>${ed}<div id="noteedit"></div></div>`;
+    const a=j.arxiv,op=document.getElementById('origpanel'),origOpen=op&&op.style.display==='block';
+    let btns='<div class="sec btnrow">';
+    if(a){btns+=`<button class="deepbtn" onclick="deepread('${esc(a)}',this)">🔬 Generate deep read</button>
+      <button class="origbtn" onclick="toggleOrig('${esc(a)}',this)">📄 ${origOpen?'Hide':'Show'} original →</button>`;}
+    if(j.editable){btns+=`<button class="origbtn" onclick="editNote()">✍️ 写/改综合</button>`;}
+    btns+='<span class="deepmsg" id="deepmsg"></span></div>';
+    el.innerHTML=`<div class="card"><h2>${esc(j.title)}</h2>
+      <span class="pill">📚 你的库</span>${a?`<span class="pill"><a href="https://arxiv.org/abs/${esc(a)}" target="_blank">arXiv ↗</a></span>`:''}
+      <div class="md note" id="notemd">${md2html(j.md)}</div>
+      ${btns}<div class="deepwrap" id="deepwrap"></div><div id="noteedit"></div></div>`;
     const m=document.getElementById('notemd');
     m.querySelectorAll('.wl').forEach(w=>w.onclick=()=>openNote(w.dataset.note));
     typeset(m);
+    if(origOpen&&a)loadOrig(a);
   }).catch(e=>{el.innerHTML='<div class="empty">⚠ '+e+'</div>';});
 };
 window.editNote=function(){
@@ -811,26 +820,31 @@ def _backlinks(slug):
 
 
 def note_markdown(slug):
-    """Return (title, display_md, below_raw, editable) for a note, or (None,…)."""
+    """Return (title, display_md, below_raw, editable, arxiv) for a note, or (None,…)."""
     if not slug or "/" in slug or "\\" in slug or ".." in slug:
-        return None, None, None, None
+        return None, None, None, None, None
     for d in (LIT, TOPICS):
         p = os.path.join(d, slug + ".md")
         if os.path.exists(p):
             t = open(p, encoding="utf-8").read()
             m = re.search(r'^title:\s*"?(.*?)"?\s*$', t, re.M)
             title = m.group(1).strip() if m else slug
+            am = re.search(r"^arxiv:\s*(\S+)\s*$", t, re.M)
+            arxiv = am.group(1).strip() if am else ""
             below = t.split(MARKER_NOTE, 1)[1].strip() if MARKER_NOTE in t else ""
             editable = (d == LIT) and (MARKER_NOTE in t)   # only your Literature notes
             body = re.sub(r"^---\n.*?\n---\n", "", t, count=1, flags=re.S)   # drop frontmatter
-            body = body.replace(MARKER_NOTE, "\n---\n")                        # marker → rule
+            body = body.split(MARKER_NOTE, 1)[0]                              # show only the top half
             body = re.sub(r">\s*\[!quote\]\s*(.*)", lambda x: "> 〔" + x.group(1).strip() + "〕", body)
+            body = re.sub(r"^\s*#\s+[^\n]*\n", "", body, count=1)             # drop duplicate title heading
+            body = re.sub(r"(?im)^\*\*(PDF|Source|Relevance):\*\*.*$", "", body)  # drop file:// / boilerplate
+            body = re.sub(r"\n{3,}", "\n\n", body).strip()
             bl = _backlinks(slug)
             if bl:
                 body += "\n\n## 🔗 Referenced by\n" + "\n".join(
                     f"- [[{s}|{ti}]]" for s, ti in bl)
-            return title, body.strip(), below, editable
-    return None, None, None, None
+            return title, body.strip(), below, editable, arxiv
+    return None, None, None, None, None
 
 
 def save_note(slug, text):
@@ -1066,11 +1080,11 @@ def serve(date, port):
                 return self._json(200, {"ok": True, "results": library_search(q)})
             if pth == "/note":
                 slug = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", [""])[0]
-                title, md, below, editable = note_markdown(slug)
+                title, md, below, editable, arxiv = note_markdown(slug)
                 if md is None:
                     return self._json(404, {"ok": False, "msg": "note not found"})
-                return self._json(200, {"ok": True, "title": title, "md": md,
-                                        "below": below, "editable": editable})
+                return self._json(200, {"ok": True, "title": title, "md": md, "below": below,
+                                        "editable": editable, "arxiv": arxiv})
             if pth == "/stub":
                 aid = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", [""])[0]
                 below = stub_below(aid)

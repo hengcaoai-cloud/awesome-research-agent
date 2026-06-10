@@ -14,6 +14,14 @@ TODAY="$(date +%Y-%m-%d)"
 LOG="Daily/${TODAY}.md"
 mkdir -p Daily
 
+# Run at most once per day. Schedule this job at several times (07:00/13:00/20:00)
+# so a laptop that was ASLEEP at one slot still catches a later one — the first
+# successful run stamps the day and the rest become no-ops. ('--force' overrides.)
+STAMP="Daily/.lastrun"
+if [ "$(cat "$STAMP" 2>/dev/null)" = "$TODAY" ] && [ "${1:-}" != "--force" ]; then
+  exit 0
+fi
+
 print "\n=== paper-agent run $(date) ===" >> "$LOG"
 
 # 1+2  Zotero -> vault (idempotent; preserves user-written sections)
@@ -32,6 +40,7 @@ if command -v "$AGENT" >/dev/null; then
     print "(digest_cards skipped: $AGENT failed)" >> "$LOG"
 fi
 "$PY" tools/viz.py >> "$LOG" 2>&1 || true
+echo "$TODAY" > "$STAMP"          # mark today done (core steps succeeded)
 
 # 5  optional agentic reading plan
 if [[ "${PAPER_AGENT_LLM:-0}" == "1" ]] && command -v "$AGENT" >/dev/null; then
