@@ -412,10 +412,11 @@ HTML_TEMPLATE = r"""<!doctype html>
   .note blockquote{border-left:3px solid #3a4258;margin:9px 0;padding:5px 0 5px 13px;color:#c1c7d8;font-size:13.5px}
   .note .wl,.md .wl{color:#7fb3ff;cursor:pointer;border-bottom:1px dotted #4a5578}
   .note .wl:hover,.md .wl:hover{color:#aecbff}
-  .notearea{width:100%;box-sizing:border-box;min-height:170px;resize:vertical;
+  .notearea{width:100%;box-sizing:border-box;min-height:200px;resize:vertical;
     font:13.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     background:#15171f;color:#dde1ee;border:1px solid var(--line);border-radius:8px;padding:11px}
   .notearea:focus{outline:none;border-color:#5566aa}
+  .hinttxt{font-size:12.5px;color:var(--mut);margin:4px 0 8px;line-height:1.6}
   .legend{position:fixed;right:14px;top:12px;background:rgba(27,30,40,.85);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12px}
   .legend .row{display:flex;align-items:center;margin:3px 0}
   .legend .dot{width:11px;height:11px;border-radius:50%;margin-right:7px;flex:none}
@@ -706,6 +707,8 @@ lh+=`<div style="font-weight:600;margin:8px 0 5px">Nodes</div>
   <div class="row"><span class="dot" style="background:#cdd2e4;width:15px;height:15px"></span>interest area (large)</div>`;
 lg.innerHTML=lh;
 // ---- library search + note reading (Obsidian-in-the-web) ----
+const NOTE_TMPL='## 核心思想\n（一两句话：这篇到底做了什么、解决了什么问题）\n\n## 为什么重要 / 我能借鉴\n\n## 和哪些论文相关\n- [[在这里关联其他论文]]\n\n## 疑问 / TODO\n- ';
+function isDefaultTmpl(v){const n=(v||'').replace(/\s+/g,' ').trim();return n===''||/Your take: what|\[ \] Worth reading/.test(n);}
 window.openNote=function(slug){
   const el=document.getElementById('detail');el.innerHTML='<div class="empty">loading note…</div>';
   fetch('/note?id='+encodeURIComponent(slug)).then(r=>r.json()).then(j=>{
@@ -736,13 +739,16 @@ window.openNote=function(slug){
 };
 window.editNote=function(){
   const box=document.getElementById('noteedit');
-  box.innerHTML=`<div class="sec"><div class="lab">我的综合 · Markdown（保存到标记线下方；上半部分永不改动）</div>
-    <textarea id="notearea" class="notearea" placeholder="写下你对这篇的理解/借鉴，可用 [[双链]] 关联其他论文…"></textarea>
+  box.innerHTML=`<div class="sec"><div class="lab">我的笔记 · 写下你的理解（Markdown，可用 [[双链]]）</div>
+    <div class="hinttxt">写什么都行，建议回答其中几个：① 核心思想是什么　② 为什么重要 / 我能借鉴什么　③ 和哪些论文相关（用 <code>[[双链]]</code> 关联）　④ 疑问 / 待办。下面已给好骨架，直接填即可。</div>
+    <textarea id="notearea" class="notearea"></textarea>
     <div class="btnrow" style="margin-top:8px">
       <button class="deepbtn" onclick="saveNote()">💾 保存</button>
       <button class="origbtn" onclick="document.getElementById('noteedit').innerHTML=''">取消</button>
       <span class="deepmsg" id="savemsg"></span></div></div>`;
-  const ta=document.getElementById('notearea');ta.value=(window._note&&window._note.below)||'';ta.focus();
+  const ta=document.getElementById('notearea');
+  let v=(window._note&&window._note.below)||'';
+  ta.value=isDefaultTmpl(v)?NOTE_TMPL:v;ta.focus();
 };
 window.saveNote=function(){
   const slug=window._note&&window._note.slug;if(!slug)return;
@@ -755,12 +761,13 @@ window.editStub=function(arxiv){
   const box=document.getElementById('noteedit');if(!box)return;
   fetch('/stub?id='+encodeURIComponent(arxiv)).then(r=>r.json()).then(j=>{
     window._stub={arxiv:arxiv};
-    box.innerHTML=`<div class="sec"><div class="lab">我的笔记 · Markdown（存到这篇在 Inbox 的笔记里，加进 Zotero 后随之进库）</div>
-      <textarea id="notearea" class="notearea" placeholder="随手记下你对这篇的想法、值不值得读…"></textarea>
+    box.innerHTML=`<div class="sec"><div class="lab">我的速记 · 存到这篇的 Inbox 笔记（Markdown）</div>
+      <div class="hinttxt">随手记：这篇值不值得读？核心点是什么？和我在做的有什么关系？</div>
+      <textarea id="notearea" class="notearea"></textarea>
       <div class="btnrow" style="margin-top:8px"><button class="deepbtn" onclick="saveStub()">💾 保存</button>
       <button class="origbtn" onclick="document.getElementById('noteedit').innerHTML=''">取消</button>
       <span class="deepmsg" id="savemsg"></span></div></div>`;
-    const ta=document.getElementById('notearea');ta.value=j.below||'';ta.focus();
+    const ta=document.getElementById('notearea');ta.value=isDefaultTmpl(j.below)?'## 速记\n\n':(j.below||'');ta.focus();
   }).catch(e=>{box.innerHTML='<div class="deepmsg">⚠ '+e+'</div>';});
 };
 window.saveStub=function(){

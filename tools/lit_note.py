@@ -150,11 +150,12 @@ def build_managed(item):
 def default_yours():
     return (
         MARKER + "\n\n"
-        "## Synthesis\n"
-        "*Your take: what's the core idea, why it matters, how it relates to other work.*\n\n"
-        "## Connections\n"
-        "- \n\n"
-        "## Questions / TODO\n"
+        "## 核心思想\n"
+        "（一两句话：这篇到底做了什么、解决了什么问题）\n\n"
+        "## 为什么重要 / 我能借鉴\n\n"
+        "## 和哪些论文相关\n"
+        "- [[在这里关联其他论文]]\n\n"
+        "## 疑问 / TODO\n"
         "- \n"
     )
 
