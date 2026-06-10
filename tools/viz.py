@@ -621,6 +621,7 @@ function select(n){sel=n;const d=n.detail||{},el=document.getElementById('detail
   if(d.arxiv){btns=`<div class="sec btnrow">
     <button class="deepbtn" onclick="deepread('${esc(d.arxiv)}',this)">🔬 ${d.deep?'Regenerate':'Generate'} deep read (full text)</button>
     <button class="origbtn" onclick="toggleOrig('${esc(d.arxiv)}',this)">📄 ${origOpen?'Hide':'Show'} original →</button>
+    <button class="origbtn" onclick="editStub('${esc(d.arxiv)}')">✍️ 写笔记</button>
     <span class="deepmsg" id="deepmsg"></span></div>`;}
   const deepBox=`<div class="deepwrap" id="deepwrap">${d.deep?`<div class="sec"><div class="lab">Deep read (method analysis)</div><div class="md" id="deepmd"></div></div>`:''}</div>`;
   el.innerHTML=`<div class="card"><h2>${esc(d.title)}</h2>
@@ -629,7 +630,7 @@ function select(n){sel=n;const d=n.detail||{},el=document.getElementById('detail
     <div style="margin:6px 0">${pills}</div>
     ${sec('Problem',d.problem)}${sec('Innovation',d.innovation)}${sec('Potential directions',d.directions)}
     ${(d.problem||d.innovation||d.directions)?'':'<div class="sec"><div class="val" style="color:var(--mut)">No value card yet — run <code>/papers digest</code>.</div></div>'}
-    ${btns}${deepBox}
+    ${btns}<div id="noteedit"></div>${deepBox}
     ${d.abstract?`<div class="sec"><div class="lab">Abstract</div><div class="abs">${esc(d.abstract)}</div></div>`:''}
     ${fb}</div>`;
   if(d.deep){const md=document.getElementById('deepmd');if(md)md.innerHTML=md2html(d.deep);}
@@ -734,6 +735,24 @@ window.saveNote=function(){
     .then(r=>r.json()).then(j=>{if(j.ok){msg.textContent='✓ 已保存';setTimeout(()=>openNote(slug),450);}else{msg.textContent='⚠ '+(j.msg||'失败');}})
     .catch(e=>{msg.textContent='⚠ '+e;});
 };
+window.editStub=function(arxiv){
+  const box=document.getElementById('noteedit');if(!box)return;
+  fetch('/stub?id='+encodeURIComponent(arxiv)).then(r=>r.json()).then(j=>{
+    window._stub={arxiv:arxiv};
+    box.innerHTML=`<div class="sec"><div class="lab">我的笔记 · Markdown（存到这篇在 Inbox 的笔记里，加进 Zotero 后随之进库）</div>
+      <textarea id="notearea" class="notearea" placeholder="随手记下你对这篇的想法、值不值得读…"></textarea>
+      <div class="btnrow" style="margin-top:8px"><button class="deepbtn" onclick="saveStub()">💾 保存</button>
+      <button class="origbtn" onclick="document.getElementById('noteedit').innerHTML=''">取消</button>
+      <span class="deepmsg" id="savemsg"></span></div></div>`;
+    const ta=document.getElementById('notearea');ta.value=j.below||'';ta.focus();
+  }).catch(e=>{box.innerHTML='<div class="deepmsg">⚠ '+e+'</div>';});
+};
+window.saveStub=function(){
+  const arxiv=window._stub&&window._stub.arxiv;if(!arxiv)return;
+  const text=document.getElementById('notearea').value,msg=document.getElementById('savemsg');msg.textContent='保存中…';
+  fetch('/savestub',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:arxiv,text:text})})
+    .then(r=>r.json()).then(j=>{msg.textContent=j.ok?'✓ 已保存':'⚠ '+(j.msg||'失败');}).catch(e=>{msg.textContent='⚠ '+e;});
+};
 window.runSearch=function(q){
   const el=document.getElementById('detail');q=(q||'').trim();
   if(q.length<2){el.innerHTML='<div class="empty">Type ≥2 characters to search your library (title · abstract · your highlights).</div>';return;}
@@ -825,6 +844,38 @@ def save_note(slug, text):
     raw = open(p, encoding="utf-8").read()
     if MARKER_NOTE not in raw:
         return False, "note has no editable section"
+    head = raw.split(MARKER_NOTE, 1)[0]
+    open(p, "w", encoding="utf-8").write(head + MARKER_NOTE + "\n\n" + (text or "").strip() + "\n")
+    return True, "saved"
+
+
+def _find_stub(arxiv):
+    """The Inbox stub for a fetched paper (by arXiv id), so you can jot notes on
+    today's recommendations before they're in your library."""
+    if not re.fullmatch(r"[\w.\-]+", str(arxiv or "")):
+        return None
+    for f in glob.glob(os.path.join(INBOX, "*.md")):
+        t = open(f, encoding="utf-8").read(1200)
+        if re.search(rf"^arxiv:\s*{re.escape(str(arxiv))}\s*$", t, re.M):
+            return f
+    return None
+
+
+def stub_below(arxiv):
+    p = _find_stub(arxiv)
+    if not p:
+        return None
+    t = open(p, encoding="utf-8").read()
+    return t.split(MARKER_NOTE, 1)[1].strip() if MARKER_NOTE in t else ""
+
+
+def save_stub(arxiv, text):
+    p = _find_stub(arxiv)
+    if not p:
+        return False, "no inbox note for this paper"
+    raw = open(p, encoding="utf-8").read()
+    if MARKER_NOTE not in raw:
+        return False, "no editable section"
     head = raw.split(MARKER_NOTE, 1)[0]
     open(p, "w", encoding="utf-8").write(head + MARKER_NOTE + "\n\n" + (text or "").strip() + "\n")
     return True, "saved"
@@ -1020,6 +1071,10 @@ def serve(date, port):
                     return self._json(404, {"ok": False, "msg": "note not found"})
                 return self._json(200, {"ok": True, "title": title, "md": md,
                                         "below": below, "editable": editable})
+            if pth == "/stub":
+                aid = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", [""])[0]
+                below = stub_below(aid)
+                return self._json(200, {"ok": below is not None, "below": below or ""})
             if pth not in ("/", "/index.html"):
                 return self._json(404, {"ok": False})
             page, _ = make_html(date, live=True)
@@ -1045,6 +1100,9 @@ def serve(date, port):
                 return self._json(200, {"ok": ok, **({"deep": out} if ok else {"msg": out})})
             if self.path == "/savenote":
                 ok, msg = save_note(pid, req.get("text", ""))
+                return self._json(200, {"ok": ok, "msg": msg})
+            if self.path == "/savestub":
+                ok, msg = save_stub(pid, req.get("text", ""))
                 return self._json(200, {"ok": ok, "msg": msg})
             if self.path == "/fulltext":
                 doc = _paper_html(pid)
