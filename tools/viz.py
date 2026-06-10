@@ -717,12 +717,19 @@ window.openNote=function(slug){
       <button class="origbtn" onclick="toggleOrig('${esc(a)}',this)">📄 ${origOpen?'Hide':'Show'} original →</button>`;}
     if(j.editable){btns+=`<button class="origbtn" onclick="editNote()">✍️ 写/改综合</button>`;}
     btns+='<span class="deepmsg" id="deepmsg"></span></div>';
+    let rel='';
+    if(j.related&&j.related.length){
+      rel=`<div class="sec"><div class="lab">🔗 相关论文（共享概念）</div>`+
+        j.related.map(r=>`<div class="result" data-note="${esc(r.slug)}"><div class="rt">${esc(r.title)}</div>
+          <div class="rm">${(r.via||[]).map(esc).join(' · ')}</div></div>`).join('')+`</div>`;
+    }
     el.innerHTML=`<div class="card"><h2>${esc(j.title)}</h2>
       <span class="pill">📚 你的库</span>${a?`<span class="pill"><a href="https://arxiv.org/abs/${esc(a)}" target="_blank">arXiv ↗</a></span>`:''}
       <div class="md note" id="notemd">${md2html(j.md)}</div>
-      ${btns}<div class="deepwrap" id="deepwrap"></div><div id="noteedit"></div></div>`;
+      ${btns}${rel}<div class="deepwrap" id="deepwrap"></div><div id="noteedit"></div></div>`;
     const m=document.getElementById('notemd');
     m.querySelectorAll('.wl').forEach(w=>w.onclick=()=>openNote(w.dataset.note));
+    el.querySelectorAll('.result').forEach(x=>x.onclick=()=>openNote(x.dataset.note));
     typeset(m);
     if(origOpen&&a)loadOrig(a);
   }).catch(e=>{el.innerHTML='<div class="empty">⚠ '+e+'</div>';});
@@ -817,6 +824,27 @@ def _backlinks(slug):
                 m = re.search(r'^title:\s*"?(.*?)"?\s*$', t, re.M)
                 out.append((base, m.group(1).strip() if m else base))
     return out
+
+
+def related_papers(slug, limit=8):
+    """Other library papers that share specific concepts with this one (the graph's
+    relatedness, as a clickable list in the note view)."""
+    lib = library_index()
+    me = next((L for L in lib if L["note"] == slug), None)
+    if not me or not me["ek"]:
+        return []
+    out = []
+    for L in lib:
+        if L["note"] == slug:
+            continue
+        shared = me["ek"] & L["ek"]
+        if not shared:
+            continue
+        w = sum(2 if k in STRONG else 1 for k in shared)
+        out.append({"slug": L["note"], "title": L["title"], "score": w,
+                    "via": sorted(shared)})
+    out.sort(key=lambda x: -x["score"])
+    return out[:limit]
 
 
 def note_markdown(slug):
@@ -1084,7 +1112,8 @@ def serve(date, port):
                 if md is None:
                     return self._json(404, {"ok": False, "msg": "note not found"})
                 return self._json(200, {"ok": True, "title": title, "md": md, "below": below,
-                                        "editable": editable, "arxiv": arxiv})
+                                        "editable": editable, "arxiv": arxiv,
+                                        "related": related_papers(slug)})
             if pth == "/stub":
                 aid = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", [""])[0]
                 below = stub_below(aid)
