@@ -484,7 +484,9 @@ const LIVE = DATA.live && location.protocol==='http:';
 const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
 const colors=DATA.colors;
 let W,H,DPR;
-function resize(){DPR=devicePixelRatio||1;W=cv.clientWidth;H=cv.clientHeight;cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);if(typeof dirty!=='undefined')dirty=true;}
+let dirty=true;   // draw only when something changed — an idle graph must not
+                  // burn 60fps (it made typing in the note editor laggy)
+function resize(){DPR=devicePixelRatio||1;W=cv.clientWidth;H=cv.clientHeight;cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);dirty=true;}
 window.addEventListener('resize',resize);resize();
 
 const N=DATA.nodes.map((n,i)=>({...n,
@@ -497,8 +499,6 @@ const E=DATA.edges.map(e=>({s:idx[e.s],t:idx[e.t],w:e.w||1,kind:e.kind})).filter
 const adj={};E.forEach(e=>{(adj[e.s]=adj[e.s]||new Set()).add(e.t);(adj[e.t]=adj[e.t]||new Set()).add(e.s);});
 
 let view={x:0,y:0,k:1.4},sel=null,hover=null,drag=null,pan=null,moved=0,alpha=1,userMoved=false;
-let dirty=true;   // draw only when something changed — an idle graph must not
-                  // burn 60fps (it made typing in the note editor laggy)
 function reheat(a){alpha=Math.max(alpha,a);dirty=true;}
 function fitView(){   // center the cluster (incl. labels) and zoom to fit, until the user takes control
   let a=1e9,b=1e9,c=-1e9,d=-1e9;const k=view.k||1;
