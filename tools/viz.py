@@ -484,7 +484,7 @@ const LIVE = DATA.live && location.protocol==='http:';
 const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
 const colors=DATA.colors;
 let W,H,DPR;
-function resize(){DPR=devicePixelRatio||1;W=cv.clientWidth;H=cv.clientHeight;cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);}
+function resize(){DPR=devicePixelRatio||1;W=cv.clientWidth;H=cv.clientHeight;cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);if(typeof dirty!=='undefined')dirty=true;}
 window.addEventListener('resize',resize);resize();
 
 const N=DATA.nodes.map((n,i)=>({...n,
@@ -497,7 +497,9 @@ const E=DATA.edges.map(e=>({s:idx[e.s],t:idx[e.t],w:e.w||1,kind:e.kind})).filter
 const adj={};E.forEach(e=>{(adj[e.s]=adj[e.s]||new Set()).add(e.t);(adj[e.t]=adj[e.t]||new Set()).add(e.s);});
 
 let view={x:0,y:0,k:1.4},sel=null,hover=null,drag=null,pan=null,moved=0,alpha=1,userMoved=false;
-function reheat(a){alpha=Math.max(alpha,a);}
+let dirty=true;   // draw only when something changed — an idle graph must not
+                  // burn 60fps (it made typing in the note editor laggy)
+function reheat(a){alpha=Math.max(alpha,a);dirty=true;}
 function fitView(){   // center the cluster (incl. labels) and zoom to fit, until the user takes control
   let a=1e9,b=1e9,c=-1e9,d=-1e9;const k=view.k||1;
   for(const n of N){const rr=n.r/k;
@@ -625,7 +627,12 @@ function draw(){
       ctx.fillText(lab,p.x+r+4,p.y+4);ctx.globalAlpha=1;}
   }
 }
-function loop(){if(alpha>0.02||drag){step();alpha*=0.97;}if(!userMoved)fitView();draw();requestAnimationFrame(loop);}
+function loop(){
+  if(alpha>0.02||drag){step();alpha*=0.97;dirty=true;}
+  if(!userMoved){const k0=view.k,x0=view.x,y0=view.y;fitView();
+    if(Math.abs(view.k-k0)>1e-4||Math.abs(view.x-x0)>0.3||Math.abs(view.y-y0)>0.3)dirty=true;}
+  if(dirty){draw();dirty=false;}
+  requestAnimationFrame(loop);}
 function pick(mx,my){let best=null,bd=1e9,bp=-1;for(const n of N){const p=T(n),dx=p.x-mx,dy=p.y-my,d=dx*dx+dy*dy;
   const hit=(n.r*view.k+12)**2;if(d<hit){const pr=ZORD[n.type]||0;
     if(pr>bp||(pr===bp&&d<bd)){bp=pr;bd=d;best=n;}}}return best;}
@@ -634,8 +641,8 @@ function onDown(e){const m=xy(e);moved=0;const n=pick(m.x,m.y);
   if(n){drag=n;reheat(0.25);}else{pan={x:m.x-view.x,y:m.y-view.y};cv.style.cursor='grabbing';userMoved=true;}}
 function onMove(e){const m=xy(e);
   if(drag){moved++;if(moved>3)userMoved=true;const w=inv(m.x,m.y);drag.x=w.x;drag.y=w.y;drag.vx=drag.vy=0;}
-  else if(pan){moved++;view.x=m.x-pan.x;view.y=m.y-pan.y;}
-  else{hover=pick(m.x,m.y);cv.style.cursor=hover?'pointer':'grab';}}
+  else if(pan){moved++;view.x=m.x-pan.x;view.y=m.y-pan.y;dirty=true;}
+  else{const h=pick(m.x,m.y);if(h!==hover){hover=h;dirty=true;}cv.style.cursor=hover?'pointer':'grab';}}
 function onUp(e){const m=xy(e);const n=pick(m.x,m.y);
   if(n&&moved<6)select(n);
   drag=null;pan=null;cv.style.cursor='grab';}
@@ -651,7 +658,7 @@ cv.addEventListener('wheel',e=>{e.preventDefault();userMoved=true;const f=e.delt
 
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function sec(l,v){return v?`<div class="sec"><div class="lab">${l}</div><div class="val">${esc(v)}</div></div>`:'';}
-function select(n){sel=n;const d=n.detail||{},el=document.getElementById('detail');
+function select(n){sel=n;dirty=true;const d=n.detail||{},el=document.getElementById('detail');
   if(n.type==='area'){el.innerHTML=`<div class="card"><h2>${esc(d.title)}</h2><span class="pill">interest area</span>
     <div class="sec"><div class="val">Papers and library notes linked here share concepts in this area of yours. Click them to compare.</div></div></div>`;return;}
   if(n.type==='lib'){openNote(d.note||n.id.slice(2));return;}
@@ -751,7 +758,7 @@ function qbadge(){const h=QS.reduce((a,t)=>a+(t.hits||[]).length,0);
 qbadge();
 function relIcon(r){return ({'同问题':'🎯','组件':'🧩','撞车':'⚠️','旁证':'📎'})[r]||'📡';}
 window.showQuestions=function(){
-  sel=null;const el=document.getElementById('detail');
+  sel=null;dirty=true;const el=document.getElementById('detail');
   const form=`<div class="qform">
     <input id="qtitle" class="libsearch" placeholder="新问题：一句话标题，如「触觉如何融入 VLA 的动作表征？」">
     <textarea id="qbody" class="notearea" style="min-height:84px" placeholder="背景 / 为什么难 / 你的直觉…（写得越具体，雷达匹配越准）"></textarea>
