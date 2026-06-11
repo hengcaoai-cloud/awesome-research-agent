@@ -317,7 +317,8 @@ def build_graph(papers, digest, lib):
 
 def render_html(date, nodes, edges, live=False):
     data = json.dumps({"nodes": nodes, "edges": edges, "colors": AREA_COLOR,
-                       "date": date, "live": live}, ensure_ascii=False)
+                       "date": date, "live": live,
+                       "questions": questions_payload()}, ensure_ascii=False)
     return HTML_TEMPLATE.replace("__DATA__", data).replace("__DATE__", html.escape(date))
 
 
@@ -417,6 +418,20 @@ HTML_TEMPLATE = r"""<!doctype html>
     background:#15171f;color:#dde1ee;border:1px solid var(--line);border-radius:8px;padding:11px}
   .notearea:focus{outline:none;border-color:#5566aa}
   .hinttxt{font-size:12.5px;color:var(--mut);margin:4px 0 8px;line-height:1.6}
+  /* open questions / ideas radar panel */
+  .qopen{width:100%;margin:0 0 14px;padding:10px 13px;font-size:14px;cursor:pointer;text-align:left;
+    border:1px solid var(--line);border-radius:9px;background:#222634;color:var(--ink)}
+  .qopen:hover{border-color:#5566aa;background:#2a3042}
+  .qopen span{color:var(--mut);font-size:12.5px}
+  .qcard{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:12px 0;background:#171a23}
+  .qcard h3{font-size:15.5px;margin:0 0 7px;line-height:1.45}
+  .qbody{font-size:13.5px;color:#c1c7d8;white-space:pre-wrap;max-height:130px;overflow:auto;margin-bottom:7px}
+  .qhits{padding-left:18px;font-size:13.5px;margin:6px 0}
+  .qhits li{margin:7px 0;line-height:1.55}
+  .qnone{color:var(--mut);font-size:13px}
+  .qsolve{cursor:pointer;background:none;border:1px solid var(--line);border-radius:6px;color:var(--mut);font-size:12px;padding:2px 7px;margin-left:6px;vertical-align:2px}
+  .qsolve:hover{border-color:#3ab07a;color:#3ab07a}
+  .qform input.libsearch{margin-bottom:8px}
   .legend{position:fixed;right:14px;top:12px;background:rgba(27,30,40,.85);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12px}
   .legend .row{display:flex;align-items:center;margin:3px 0}
   .legend .dot{width:11px;height:11px;border-radius:50%;margin-right:7px;flex:none}
@@ -426,6 +441,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 <div id="wrap">
   <div id="side"><h1>Today's recommendations</h1><div class="sub">__DATE__ · click a node, or search your library ↓</div>
     <input id="libsearch" class="libsearch" type="search" placeholder="🔎 Search your library — title, abstract, your highlights…" autocomplete="off">
+    <button class="qopen" onclick="showQuestions()">❓ 问题与想法 · 雷达 <span id="qbadge"></span></button>
     <div id="detail"><div class="empty">Click a paper node (solid dot) for its value card; click a library paper (ring) to read its note + your highlights; or search above.</div></div>
   </div>
   <div id="origpanel" style="display:none"></div>
@@ -699,6 +715,56 @@ window.fb=function(id,verdict,btn){
       if(j.ok&&btn){[...btn.parentNode.children].forEach(b=>b.style.opacity=.5);btn.style.opacity=1;}
     }).catch(e=>{msg.textContent='⚠ '+e;});
 };
+// ---- open questions / ideas radar panel (Research/questions.md + radar.md) ----
+let QS=DATA.questions||[];
+function qbadge(){const h=QS.reduce((a,t)=>a+(t.hits||[]).length,0);
+  const b=document.getElementById('qbadge');if(b)b.textContent=`${QS.filter(t=>t.kind==='question').length} 问题 · ${h} 命中`;}
+qbadge();
+function relIcon(r){return ({'同问题':'🎯','组件':'🧩','撞车':'⚠️','旁证':'📎'})[r]||'📡';}
+window.showQuestions=function(){
+  sel=null;const el=document.getElementById('detail');
+  const form=`<div class="qform">
+    <input id="qtitle" class="libsearch" placeholder="新问题：一句话标题，如「触觉如何融入 VLA 的动作表征？」">
+    <textarea id="qbody" class="notearea" style="min-height:84px" placeholder="背景 / 为什么难 / 你的直觉…（写得越具体，雷达匹配越准）"></textarea>
+    <div class="btnrow" style="margin-top:8px">
+      <button class="deepbtn" onclick="qadd(this)">➕ 记录问题</button>
+      <button class="origbtn" onclick="qmatch(this)">📡 立即匹配今天的论文</button></div>
+    <div class="fbmsg" id="qmsg">${LIVE?'':'(静态页只读 — 运行 <code>viz.py --serve</code> 可新增/匹配/标记)'}</div></div>`;
+  const cards=QS.map(t=>{
+    const hs=(t.hits||[]).map(h=>`<li>${relIcon(h.relation)} <b>${esc(h.relation)}</b> · <a href="${esc(h.url)}" target="_blank">${esc(h.title)}</a> <span style="color:var(--mut)">(${esc(h.date)})</span><br><span style="color:#aab1c6">${esc(h.why)}</span></li>`).join('');
+    const solve=(LIVE&&t.kind==='question')?`<button class="qsolve" onclick="qsolve('${t.id}')" title="标记已解决，雷达不再匹配">✅ 已解决</button>`:'';
+    return `<div class="qcard"><h3>${t.kind==='idea'?'💡':'❓'} ${esc(t.title)}${solve}</h3>
+      ${t.text?`<div class="qbody">${esc(t.text)}</div>`:''}
+      ${hs?`<ul class="qhits">${hs}</ul>`:'<div class="qnone">📡 还没有命中 — 每天 fetch 后自动匹配</div>'}</div>`;}).join('');
+  el.innerHTML=`<div class="card"><h2>❓ 开放问题与想法</h2>
+    <div class="hinttxt">记录你关心但还没解决的问题（存在 <code>Research/questions.md</code>，Obsidian 里也能改）。每天的新论文自动与之匹配：🎯同问题 · 🧩组件 · ⚠️撞车 · 📎旁证；命中也累积在 <code>Research/radar.md</code>。💡 来自 <code>Research/ideas/</code>。</div>
+    ${form}${cards||'<div class="qnone" style="margin-top:14px">还没有问题 — 在上面写下第一个。</div>'}</div>`;
+  typeset(el);};
+window.qadd=function(btn){
+  const msg=document.getElementById('qmsg');
+  if(!LIVE){msg.innerHTML='需要 <code>viz.py --serve</code>';return;}
+  const title=document.getElementById('qtitle').value.trim();
+  const body=document.getElementById('qbody').value.trim();
+  if(!title){msg.textContent='⚠ 先写一句话标题';return;}
+  btn.disabled=true;msg.textContent='…';
+  fetch('/qadd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,body})})
+    .then(r=>r.json()).then(j=>{btn.disabled=false;
+      if(j.ok){QS=j.questions||QS;qbadge();showQuestions();
+        document.getElementById('qmsg').textContent='✓ '+(j.msg||'已记录')+' — 可点「📡 立即匹配」';}
+      else msg.textContent='⚠ '+(j.msg||'failed');})
+    .catch(e=>{btn.disabled=false;msg.textContent='⚠ '+e;});};
+window.qmatch=function(btn){
+  const msg=document.getElementById('qmsg');
+  if(!LIVE){msg.innerHTML='需要 <code>viz.py --serve</code>';return;}
+  btn.disabled=true;msg.textContent='📡 匹配中…（LLM 判断，约 1 分钟）';
+  fetch('/qmatch',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+    .then(r=>r.json()).then(j=>{QS=j.questions||QS;qbadge();showQuestions();
+      document.getElementById('qmsg').textContent=(j.ok?'✓ ':'⚠ ')+(j.msg||'');})
+    .catch(e=>{btn.disabled=false;msg.textContent='⚠ '+e;});};
+window.qsolve=function(id){
+  fetch('/qsolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})
+    .then(r=>r.json()).then(j=>{QS=j.questions||QS;qbadge();showQuestions();
+      document.getElementById('qmsg').textContent=(j.ok?'✓ ':'⚠ ')+(j.msg||'');});};
 const lg=document.getElementById('legend');let lh='<div style="font-weight:600;margin-bottom:5px">Areas</div>';
 for(const[a,c]of Object.entries(colors)){if(a==='_other')continue;lh+=`<div class="row"><span class="dot" style="background:${c}"></span>${a}</div>`;}
 lh+=`<div style="font-weight:600;margin:8px 0 5px">Nodes</div>
@@ -1078,9 +1144,60 @@ def run_deepread(arxiv_id):
     return True, deep
 
 
+# ---------------- open questions / ideas panel (questions.md + radar) ------
+def questions_payload():
+    """Active questions + ideas with their radar hits, for the web panel."""
+    import radar
+    targets = radar.load_targets()
+    hist = radar.load_json(radar.HISTORY, [])
+    hits = {}
+    for h in hist:
+        hits.setdefault(h["target"], []).append({
+            "date": h["date"], "title": h["paper_title"], "url": h["url"],
+            "relation": h["relation"], "why": h["why"]})
+    for t in targets:
+        t["hits"] = sorted(hits.get(t["id"], []), key=lambda x: x["date"], reverse=True)
+    return targets
+
+
+def question_add(title, body):
+    import radar
+    title = " ".join((title or "").strip().lstrip("#").split())
+    if not title:
+        return False, "标题不能为空"
+    if not os.path.exists(radar.QUESTIONS):
+        with open(radar.QUESTIONS, "w", encoding="utf-8") as f:
+            f.write("# ❓ 开放问题与想法\n")
+    text = open(radar.QUESTIONS, encoding="utf-8").read()
+    for m in re.finditer(r"^## +(.+?)\s*$", text, re.M):
+        if radar.qid(m.group(1).strip()) == radar.qid(title):
+            return False, "已有同名问题"
+    body = (body or "").strip()
+    with open(radar.QUESTIONS, "a", encoding="utf-8") as f:
+        f.write("\n## " + title + ("\n\n" + body + "\n" if body else "\n"))
+    return True, "已写入 Research/questions.md"
+
+
+def question_solve(tid):
+    import radar
+    if not os.path.exists(radar.QUESTIONS):
+        return False, "questions.md 不存在"
+    lines = open(radar.QUESTIONS, encoding="utf-8").read().splitlines(keepends=True)
+    for i, ln in enumerate(lines):
+        m = re.match(r"^## +(.+?)\s*$", ln)
+        if m and radar.qid(m.group(1).strip()) == tid:
+            lines[i] = f"## {m.group(1).strip()} ✅\n"
+            with open(radar.QUESTIONS, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+            return True, "已标记 ✅（雷达将跳过它）"
+    return False, "没找到这个问题"
+
+
 def serve(date, port):
     import http.server
-    date = date or load_last_fetch(date)[0] or dt.date.today().isoformat()
+    # An explicit --date is pinned; otherwise every request follows the LATEST
+    # fetch — a server left running overnight must not keep serving yesterday.
+    pinned = date
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -1125,8 +1242,11 @@ def serve(date, port):
                 aid = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", [""])[0]
                 below = stub_below(aid)
                 return self._json(200, {"ok": below is not None, "below": below or ""})
+            if pth == "/questions":
+                return self._json(200, {"ok": True, "questions": questions_payload()})
             if pth not in ("/", "/index.html"):
                 return self._json(404, {"ok": False})
+            date = pinned or load_last_fetch(None)[0] or dt.date.today().isoformat()
             page, _ = make_html(date, live=True)
             body = (page or "<h1>no fetched papers</h1>").encode()
             self.send_response(200)
@@ -1142,6 +1262,24 @@ def serve(date, port):
                 req = json.loads(self.rfile.read(ln) or b"{}")
             except Exception:
                 return self._json(400, {"ok": False, "msg": "bad json"})
+            if self.path == "/qadd":
+                ok, msg = question_add(req.get("title", ""), req.get("body", ""))
+                return self._json(200, {"ok": ok, "msg": msg,
+                                        "questions": questions_payload()})
+            if self.path == "/qsolve":
+                ok, msg = question_solve(str(req.get("id", "")))
+                return self._json(200, {"ok": ok, "msg": msg,
+                                        "questions": questions_payload()})
+            if self.path == "/qmatch":
+                try:
+                    r = subprocess.run([PY, os.path.join(TOOLS, "radar.py")],
+                                       capture_output=True, text=True, timeout=600)
+                    lines = (r.stdout or r.stderr).strip().splitlines()
+                    ok, msg = r.returncode == 0, (lines[-1] if lines else "")
+                except Exception as e:
+                    ok, msg = False, str(e)[:160]
+                return self._json(200, {"ok": ok, "msg": msg[:200],
+                                        "questions": questions_payload()})
             pid, verdict = str(req.get("id", "")), req.get("verdict")
             if not re.fullmatch(r"[\w.\-/]+", pid or ""):
                 return self._json(400, {"ok": False, "msg": "bad id"})
@@ -1179,7 +1317,7 @@ def serve(date, port):
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.daemon_threads = True
     url = f"http://127.0.0.1:{port}/"
-    print(f"serving live graph for {date} at {url}  (Ctrl-C to stop)")
+    print(f"serving live graph ({pinned or 'latest fetch'}) at {url}  (Ctrl-C to stop)")
     webbrowser.open(url)
     try:
         httpd.serve_forever()

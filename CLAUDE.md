@@ -21,10 +21,14 @@ weight those (the fetcher already boosts 📌venue and 💻code).
   **bottom half** is the user's own synthesis — **never overwrite it**.
 - `Topics/` — one MOC per Zotero collection (World Model, VLA, CV, Robotics,
   MLLM, ML, Foundation Model, Diffusion). These are the knowledge-graph hubs.
+  Plus `Concepts.md` — the auto-built cross-paper concept glossary (glossary.py).
 - `Inbox/` — newly fetched candidates awaiting triage. `.feedback.jsonl` (keep/drop
   signals) and `.surfaced.txt` (already-shown ids) live here.
 - `Daily/` — fetch logs + reading plans, dated `YYYY-MM-DD.md`.
 - `Research/` — `gaps-<date>.md`, `ideas/`, and `weekly/` synthesis outputs.
+  Also `questions.md` — the user's **open problems** (one `## ` section each;
+  ✅ in the title = solved/ignored); `radar.md` — auto-accumulated paper↔question
+  hits (radar.py, never hand-edit); `conf/` — conference acceptance scans.
 - `tools/` — Python scripts (stdlib only). `.interests.yaml` tunes the fetcher.
 
 ## Data sources & trust order
@@ -53,13 +57,22 @@ highlight, or the PDF. When you use a paper, link it as `[[note-name]]`.
     python3 tools/s2_graph.py ARXIV_ID [--citations N]          # lineage + frontier
     python3 tools/zotero_add.py ARXIV_ID [--collection NAME]   # connector: item + PDF, auto-routes to Recommend
     python3 tools/viz.py [--date YYYY-MM-DD] [--open]          # interactive knowledge-graph HTML
+    python3 tools/radar.py [--dry-run]               # match new papers ↔ open questions/ideas
+    python3 tools/confscan.py VENUE [YEAR] [--top N] # 放榜扫描: rank a conference's accepted list
+    python3 tools/backlog.py [--days 14]             # 积压重浮: saved >N days, zero highlights/notes
+    python3 tools/glossary.py [--no-llm]             # rebuild Topics/Concepts.md concept glossary
 
 `fetch.py` recalls from arXiv (today's newest) + Semantic Scholar recommendations
 (seeded by the library; set `S2_API_KEY` env for higher rate limits). Logic lives
 in `tools/paperlib.py`. Per-source quotas (`top_arxiv`, `top_s2` in
 `.interests.yaml`) keep daily freshness from being crowded out by recommendations;
 already-surfaced papers are tracked in `Inbox/.surfaced.txt` and never repeated.
-fetch.py also writes a machine-readable `Inbox/.last_fetch.json`.
+fetch.py also writes a machine-readable `Inbox/.last_fetch.json`; **same-day runs
+merge** into it (and an empty pick never wipes it), so re-running fetch.py during
+the day only ADDs papers. daily.sh exploits this: the first slot (07:00) runs the
+full pipeline, later slots (13:00/20:00) do a light **top-up fetch** — arXiv
+announces at 00:00 UTC = 08:00 CST, *after* the morning run, so the top-up is
+what catches papers announced today (cards + radar + graph refresh included).
 
 `viz.py` builds `Daily/<date>-graph.html` — a self-contained force-directed graph
 linking each fetched paper to the user's interest **areas** and to the specific
@@ -74,7 +87,12 @@ the graph steers future recommendations. Each paper card also has a **🔬 deep 
 button: it fetches the paper's arXiv HTML full text and runs the user's 6-section
 method-analysis template (`Research/paper-reading-template.md`) via `claude -p`,
 rendering the Chinese analysis into the card and caching it in `Inbox/.digest.json`
-under `deep`. No external deps.
+under `deep`. The sidebar's **❓ 问题与想法·雷达** button opens the open-questions
+panel: view every question/idea with its radar hits, add a new question (writes a
+`## ` section to `Research/questions.md`), mark one ✅ solved, or trigger 📡
+immediate matching of today's batch (runs radar.py). In `--serve` mode the page
+always follows the LATEST fetch (a server left running overnight won't serve
+yesterday); an explicit `--date` pins it. No external deps.
 
 `zotero_add.py` uses the Zotero **connector** (Settings → Advanced → "Allow other
 applications…"). It saves the item AND uploads the real PDF as a stored attachment
@@ -83,6 +101,25 @@ its own outside a browser), then calls `/updateSession` to **auto-route the item
 into a fixed collection (default `Recommend`)** — no manual click in the Zotero UI
 needed. Override with `--collection NAME`, or `--no-collection` to use the current
 UI selection.
+
+`radar.py` (研究雷达) matches each day's fetched papers against the user's open
+questions (`Research/questions.md`) and idea files (`Research/ideas/*.md`) with
+one batched LLM call — relations: 同问题 / 组件 / 撞车 (novelty risk) / 旁证.
+Hits accumulate in `Research/radar.md` and the day's `### 📡 Radar` section;
+`(paper, target)` pairs are never re-reported (`Research/.radar.json[.seen]`).
+daily.sh runs it after digest_cards. **When the user mentions an unsolved problem
+in chat, offer to record it in `questions.md`** (`/research questions add`).
+
+`confscan.py` (放榜扫描) pulls a conference's accepted list (OpenReview API for
+iclr/neurips/icml/corl; arXiv comment search for icra/rss/…) and ranks it with
+the same learned profile as fetch.py → `Research/conf/<venue>-<year>.md`.
+
+`backlog.py` (积压重浮) lists Zotero items added >14 days ago with zero
+highlights/notes — saved ≠ read; weekly.sh appends it to the day's log.
+
+`glossary.py` rebuilds `Topics/Concepts.md`: specific concept → papers, **bold**
+where the concept appears in the user's highlights/synthesis; 中文定义 cached in
+`Topics/.glossary.json` (weekly.sh refreshes).
 
 `rg`/Grep over `Literature/` and `Topics/` is usually the fastest way to find
 which notes are relevant to a question — search titles, highlights, and the
@@ -122,18 +159,22 @@ user's synthesis at once.
 - This is idempotent and preserves every user-written section.
 
 ## Slash commands (`.claude/commands/`) — 4 hubs, each dispatches on its first word
-- **`/papers [fetch|digest|triage|keep <id>|drop <id>]`** — the daily paper flow.
-  `fetch` (default) pulls new papers (arXiv + S2) → `Inbox/`; `digest` writes the
-  prioritized reading plan **and** the interactive value graph (headless 07:00);
-  `triage` reviews the batch with **clickable** 👍/👎 (AskUserQuestion →
-  `feedback.py keep/drop`); `keep`/`drop` teach the fetcher directly (keep can also
-  `zotero_add.py` the PDF).
+- **`/papers [fetch|digest|triage|keep <id>|drop <id>|conf <venue> [yr]|backlog]`**
+  — the daily paper flow. `fetch` (default) pulls new papers (arXiv + S2) →
+  `Inbox/`; `digest` writes the prioritized reading plan **and** the interactive
+  value graph (headless 07:00); `triage` reviews the batch with **clickable**
+  👍/👎 (AskUserQuestion → `feedback.py keep/drop`); `keep`/`drop` teach the
+  fetcher directly (keep can also `zotero_add.py` the PDF); `conf` scans a
+  conference's accepted list (confscan.py); `backlog` resurfaces saved-but-unread
+  papers (backlog.py).
 - **`/ask <q | paper | connect [theme]>`** — library Q&A. A question → grounded
   answer; an arXiv id / `[[note]]` / `paper: <title>` → digest + citation lineage;
   `connect [theme]` → surface missed links across the vault.
-- **`/research [gaps|ideas|weekly]`** — synthesis & ideation. `gaps` mines open
-  problems; `ideas` proposes novel directions (idea-generation + novelty-assessment);
-  `weekly` is the weekly synthesis (headless Sun 07:30). Outputs land under `Research/`.
+- **`/research [gaps|ideas|weekly|questions|glossary]`** — synthesis & ideation.
+  `gaps` mines open problems; `ideas` proposes novel directions (idea-generation +
+  novelty-assessment); `weekly` is the weekly synthesis (headless Sun 07:30, now
+  incl. 积压重浮 + 雷达 roll-up); `questions` reviews/adds open problems and their
+  radar hits; `glossary` rebuilds the concept MOC. Outputs land under `Research/`.
 - **`/sync-vault`** — refresh notes + Topic MOCs from Zotero.
 
 When presenting fetched papers, prefer collecting reactions via AskUserQuestion

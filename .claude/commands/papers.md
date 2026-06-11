@@ -12,6 +12,8 @@ Dispatch on the first word:
 - **`triage`** → **Triage** below.
 - **`keep <id…>`** → **Keep** below.
 - **`drop <id…>`** → **Drop** below.
+- **`conf <venue> [year]`** → **Conf scan** below (会议放榜扫描).
+- **`backlog`** → **Backlog** below (积压重浮).
 
 Pass any extra flags through (e.g. `fetch --source s2 --top 20`).
 
@@ -89,3 +91,22 @@ Arg = arXiv id / S2 id / title.
    Inbox stub. Dropped ids suppress similar recommendations.
 2. If the user dislikes a whole theme ("stop showing me X"), add X to the `mute`
    list in `.interests.yaml` — see CLAUDE.md "Evolving".
+
+### Conf scan（会议放榜扫描）
+Args = venue (iclr/neurips/icml/corl via OpenReview; icra/rss/cvpr/… via arXiv
+comment search) + optional year (default: current).
+1. `python3 tools/confscan.py <venue> [year] [--top 30]` — pulls the accepted
+   list, scores every paper with the user's learned interest profile, writes a
+   ranked report to `Research/conf/<venue>-<year>.md` and prints the top picks.
+2. Present the top picks grouped by the user's areas, flagging 🏅oral/✨spotlight
+   and papers whose lineage touches their library (`[[notes]]`). If the venue
+   hasn't announced yet, the tool falls back to arXiv comments — say so.
+3. Offer AskUserQuestion triage of the top picks (same style as **Triage**);
+   liked ones → `feedback.py keep` / `zotero_add.py`.
+
+### Backlog（积压重浮）
+1. `python3 tools/backlog.py [--days 14]` — Zotero items added >N days ago that
+   still have ZERO highlights and notes (saved ≠ read).
+2. Present the list; via AskUserQuestion let the user pick: 本周读它（add to a
+   reading plan in `Daily/<today>.md`）/ 不读了（acknowledge and move on）.
+   The weekly job also appends this list automatically.
