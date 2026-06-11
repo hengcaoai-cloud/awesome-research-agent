@@ -92,7 +92,10 @@ panel: view every question/idea with its radar hits, add a new question (writes 
 `## ` section to `Research/questions.md`), mark one ✅ solved, or trigger 📡
 immediate matching of today's batch (runs radar.py). In `--serve` mode the page
 always follows the LATEST fetch (a server left running overnight won't serve
-yesterday); an explicit `--date` pins it. No external deps.
+yesterday); an explicit `--date` pins it. Papers the user added to Zotero
+**today** always appear in today's graph as 📥 ring nodes (fetch never
+recommends in-library papers, so this is how a self-added paper shows up).
+No external deps.
 
 `zotero_add.py` uses the Zotero **connector** (Settings → Advanced → "Allow other
 applications…"). It saves the item AND uploads the real PDF as a stored attachment

@@ -234,14 +234,15 @@ def library_index():
         text = title + " " + (ab.group(1) if ab else "")
         cm = re.search(r"^collections:\s*\[(.*)\]", t, re.M)
         colls = [c.strip().strip('"') for c in cm.group(1).split(",")] if cm else []
+        am = re.search(r"^zotero_added:\s*(\d{4}-\d{2}-\d{2})", t, re.M)
         kws = keywords_of(text)
         out.append({"title": title, "colls": colls, "kws": kws,
-                    "ek": edge_concepts(kws),
+                    "ek": edge_concepts(kws), "added": am.group(1) if am else "",
                     "note": os.path.splitext(os.path.basename(f))[0]})
     return out
 
 
-def build_graph(papers, digest, lib):
+def build_graph(papers, digest, lib, date=None):
     nodes, edges, node_ids = [], [], set()
 
     def add(nid, **kw):
@@ -312,6 +313,34 @@ def build_graph(papers, digest, lib):
                             "note": L["note"], "colls": L["colls"]})
                 used_lib[lid] = True
             edges.append({"s": pid, "t": lid, "w": w, "kind": "lib", "via": sh})
+
+    # papers the user ADDED to Zotero today always show in today's graph —
+    # what you saved today belongs in today's picture, even when no fetched
+    # paper shares enough concepts to pull it in as a neighbour.
+    for L in lib:
+        if not date or L.get("added") != date:
+            continue
+        lid = "L:" + L["note"]
+        if lid in used_lib:                       # already in — just flag it
+            for n in nodes:
+                if n["id"] == lid:
+                    n["label"] = "📥 " + n["label"]
+                    n["detail"]["kind"] = "📥 added to your library today"
+            continue
+        larea = area_of_keywords(L["kws"])
+        aid = "A:" + larea
+        add(aid, label="Other" if larea == "_other" else larea, type="area",
+            area=larea, detail={"title": "Other" if larea == "_other" else larea,
+                                "kind": "interest area"})
+        add(lid, label="📥 " + clean_label(L["title"]), type="lib", area=larea,
+            detail={"title": L["title"], "kind": "📥 added to your library today",
+                    "note": L["note"], "colls": L["colls"]})
+        used_lib[lid] = True
+        edges.append({"s": lid, "t": aid, "w": 1, "kind": "area"})
+        for pid, spec in paper_kw.items():        # weaker links allowed here
+            w, sh = rel(spec, L["ek"])
+            if w >= 1:
+                edges.append({"s": pid, "t": lid, "w": w, "kind": "lib", "via": sh})
     return nodes, edges
 
 
@@ -1000,7 +1029,7 @@ def make_html(date, live=False):
     _, papers = load_last_fetch(date)
     if not papers:
         return None, None
-    nodes, edges = build_graph(papers, load_digest(), library_index())
+    nodes, edges = build_graph(papers, load_digest(), library_index(), date)
     return render_html(date, nodes, edges, live=live), (nodes, edges)
 
 
