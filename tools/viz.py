@@ -522,12 +522,22 @@ const adj={};E.forEach(e=>{(adj[e.s]=adj[e.s]||new Set()).add(e.t);(adj[e.t]=adj
 
 let view={x:0,y:0,k:1.4},sel=null,hover=null,drag=null,pan=null,moved=0,alpha=1,userMoved=false;
 function reheat(a){alpha=Math.max(alpha,a);dirty=true;}
-function fitView(){   // center the cluster (incl. labels) and zoom to fit, until the user takes control
-  let a=1e9,b=1e9,c=-1e9,d=-1e9;const k=view.k||1;
-  for(const n of N){const rr=n.r/k;
+function fitView(){   // center the MAIN cluster and zoom to fit, until the user takes control.
+  // Robust to outliers: a couple of weakly-linked nodes flung far out must not
+  // drive the camera (they shoved the cluster into a corner).
+  const k=view.k||1;
+  const xs=N.map(n=>n.x).sort((p,q)=>p-q),ys=N.map(n=>n.y).sort((p,q)=>p-q);
+  const mx=xs[xs.length>>1],my=ys[ys.length>>1];
+  const ds=N.map(n=>Math.hypot(n.x-mx,n.y-my)).sort((p,q)=>p-q);
+  const lim=Math.max(ds[(ds.length*0.85)|0]*1.6,260);
+  let a=1e9,b=1e9,c=-1e9,d=-1e9;
+  for(const n of N){
+    if(Math.hypot(n.x-mx,n.y-my)>lim)continue;
+    const rr=n.r/k;
     const lw=(Math.min(n.label.length,46)*6.6+n.r+10)/k;  // label extends to the right
     if(n.x-rr<a)a=n.x-rr; if(n.x+lw>c)c=n.x+lw;
     if(n.y-rr<b)b=n.y-rr; if(n.y+rr>d)d=n.y+rr;}
+  if(a>c)return;
   const bw=(c-a)||1,bh=(d-b)||1,pad=Math.min(W,H)*0.10;
   view.k=Math.max(0.4,Math.min(2.6,Math.min((W-pad)/bw,(H-pad)/bh)));
   view.x=-((a+c)/2-W/2)*view.k;
@@ -650,7 +660,7 @@ function draw(){
   }
 }
 function loop(){
-  if(alpha>0.02||drag){step();alpha*=0.97;dirty=true;}
+  if(alpha>0.02||drag){step();alpha*=0.98;dirty=true;}
   if(!userMoved){const k0=view.k,x0=view.x,y0=view.y;fitView();
     if(Math.abs(view.k-k0)>1e-4||Math.abs(view.x-x0)>0.3||Math.abs(view.y-y0)>0.3)dirty=true;}
   if(dirty){draw();dirty=false;}
