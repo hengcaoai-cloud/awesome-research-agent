@@ -66,6 +66,20 @@ DEEP_PROMPT = """你是一名 AI 领域的研究生，擅长从第一性原理�
 {text}
 ================ 论文全文结束 ================"""
 
+ASK_PROMPT = """你是一位严谨的论文阅读助手。请基于下面提供的论文原文回答用户的问题，要求：
+- **只依据论文原文**回答；论文没讲的就明确说"论文中没有提到"，不要编造、不要用领域常识冒充论文内容
+- 回答精准、结构清晰、通俗易懂（中文，技术名词可保留英文）
+- 关键结论附上论文中的依据：引用原文短句（可用引号）并尽量给出小节/公式/图表编号，让用户能在原文里定位
+- 默认控制在 300 字以内；问题确实复杂时可以更长，但不要灌水
+
+{history}================ 论文原文开始 ================
+{text}
+================ 论文原文结束 ================
+
+用户问题：{q}
+
+直接输出回答，不要寒暄。"""
+
 # Interest keyword -> area (mirrors .interests.yaml boost terms). Grouping is what
 # the graph shows: "how does this paper relate to my areas?"
 # Calibrated to the user's Zotero (World Model 33, VLA 33, CV 27, Robotics 20, …)
@@ -466,6 +480,9 @@ HTML_TEMPLATE = r"""<!doctype html>
   .starrow .star.on{color:#f5c542}
   .starrow .star:hover{transform:scale(1.15)}
   .starrow .deepmsg{margin-left:9px}
+  #qathread{max-height:340px;overflow:auto}
+  .qaq{font-size:13.5px;color:#dfe4f5;background:#222a40;border-radius:9px;padding:7px 11px;margin:9px 0 5px}
+  .qaa{border-left:2px solid #3ab07a;padding:2px 0 2px 11px;margin:0 0 6px}
   .legend{position:fixed;right:14px;top:12px;background:rgba(27,30,40,.85);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12px}
   .legend .row{display:flex;align-items:center;margin:3px 0}
   .legend .dot{width:11px;height:11px;border-radius:50%;margin-right:7px;flex:none}
@@ -663,7 +680,9 @@ cv.addEventListener('wheel',e=>{e.preventDefault();userMoved=true;const f=e.delt
 
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function sec(l,v){return v?`<div class="sec"><div class="lab">${l}</div><div class="val">${esc(v)}</div></div>`:'';}
-function select(n){sel=n;dirty=true;const d=n.detail||{},el=document.getElementById('detail');
+function select(n){sel=n;dirty=true;window._lastView={kind:'node',n:n};
+  const el0=document.getElementById('detail');el0.dataset.qopen='';
+  const d=n.detail||{},el=el0;
   if(n.type==='area'){el.innerHTML=`<div class="card"><h2>${esc(d.title)}</h2><span class="pill">interest area</span>
     <div class="sec"><div class="val">Papers and library notes linked here share concepts in this area of yours. Click them to compare.</div></div></div>`;return;}
   if(n.type==='lib'){openNote(d.note||n.id.slice(2));return;}
@@ -679,6 +698,7 @@ function select(n){sel=n;dirty=true;const d=n.detail||{},el=document.getElementB
   if(d.arxiv){btns=`<div class="sec btnrow">
     <button class="deepbtn" onclick="deepread('${esc(d.arxiv)}',this)">🔬 ${d.deep?'Regenerate':'Generate'} deep read (full text)</button>
     <button class="origbtn" onclick="toggleOrig('${esc(d.arxiv)}',this)">📄 ${origOpen?'Hide':'Show'} original →</button>
+    <button class="origbtn" onclick="toggleQA('${esc(d.arxiv)}')">💬 提问</button>
     <button class="origbtn" onclick="editStub('${esc(d.arxiv)}')">✍️ 写笔记</button>
     <span class="deepmsg" id="deepmsg"></span></div>`;}
   const deepBox=`<div class="deepwrap" id="deepwrap">${d.deep?`<div class="sec"><div class="lab">Deep read (method analysis)</div><div class="md" id="deepmd"></div></div>`:''}</div>`;
@@ -688,7 +708,7 @@ function select(n){sel=n;dirty=true;const d=n.detail||{},el=document.getElementB
     <div style="margin:6px 0">${pills}</div>
     ${sec('Problem',d.problem)}${sec('Innovation',d.innovation)}${sec('Potential directions',d.directions)}
     ${(d.problem||d.innovation||d.directions)?'':'<div class="sec"><div class="val" style="color:var(--mut)">No value card yet — run <code>/papers digest</code>.</div></div>'}
-    ${btns}<div id="noteedit"></div>${deepBox}
+    ${btns}<div id="qabox"></div><div id="noteedit"></div>${deepBox}
     ${d.abstract?`<div class="sec"><div class="lab">Abstract</div><div class="abs">${esc(d.abstract)}</div></div>`:''}
     ${fb}</div>`;
   if(d.deep){const md=document.getElementById('deepmd');if(md)md.innerHTML=md2html(d.deep);}
@@ -745,6 +765,8 @@ window.toggleOrig=function(id,btn){
     p.style.display='none';cv.style.display='block';resize();btn.textContent='📄 Show original →';return;}
   p.style.display='block';cv.style.display='none';   // hide graph → original gets full width
   btn.textContent='📄 Hide original';loadOrig(id);
+  const qb=document.getElementById('qabox');          // reading mode → offer Q&A
+  if(qb&&qb.dataset.open!=='1')toggleQA(id);
 };
 window.fb=function(id,verdict,btn){
   const msg=document.getElementById('fbmsg');
@@ -762,8 +784,18 @@ function qbadge(){const h=QS.reduce((a,t)=>a+(t.hits||[]).length,0);
   const b=document.getElementById('qbadge');if(b)b.textContent=`${QS.filter(t=>t.kind==='question').length} 问题 · ${h} 命中`;}
 qbadge();
 function relIcon(r){return ({'同问题':'🎯','组件':'🧩','撞车':'⚠️','旁证':'📎'})[r]||'📡';}
+window.closeQuestions=function(){
+  const el=document.getElementById('detail');el.dataset.qopen='';
+  const v=window._lastView;
+  if(v&&v.kind==='node'){select(v.n);return;}
+  if(v&&v.kind==='note'){openNote(v.slug);return;}
+  el.innerHTML='<div class="empty">Click a paper node (solid dot) for its value card; click a library paper (ring) to read its note + your highlights; or search above.</div>';};
 window.showQuestions=function(){
-  sel=null;dirty=true;const el=document.getElementById('detail');
+  const el0=document.getElementById('detail');
+  if(el0.dataset.qopen==='1'){closeQuestions();return;}   // sidebar button = toggle
+  renderQuestions();};
+window.renderQuestions=function(){
+  sel=null;dirty=true;const el=document.getElementById('detail');el.dataset.qopen='1';
   const form=`<div class="qform">
     <input id="qtitle" class="libsearch" placeholder="新问题：一句话标题，如「触觉如何融入 VLA 的动作表征？」">
     <textarea id="qbody" class="notearea" style="min-height:84px" placeholder="背景 / 为什么难 / 你的直觉…（写得越具体，雷达匹配越准）"></textarea>
@@ -777,7 +809,7 @@ window.showQuestions=function(){
     return `<div class="qcard"><h3>${t.kind==='idea'?'💡':'❓'} ${esc(t.title)}${solve}</h3>
       ${t.text?`<div class="qbody">${esc(t.text)}</div>`:''}
       ${hs?`<ul class="qhits">${hs}</ul>`:'<div class="qnone">📡 还没有命中 — 每天 fetch 后自动匹配</div>'}</div>`;}).join('');
-  el.innerHTML=`<div class="card"><h2>❓ 开放问题与想法</h2>
+  el.innerHTML=`<div class="card"><h2>❓ 开放问题与想法 <button class="qsolve" style="float:right" onclick="closeQuestions()">✕ 返回</button></h2>
     <div class="hinttxt">记录你关心但还没解决的问题（存在 <code>Research/questions.md</code>，Obsidian 里也能改）。每天的新论文自动与之匹配：🎯同问题 · 🧩组件 · ⚠️撞车 · 📎旁证；命中也累积在 <code>Research/radar.md</code>。💡 来自 <code>Research/ideas/</code>。</div>
     ${form}${cards||'<div class="qnone" style="margin-top:14px">还没有问题 — 在上面写下第一个。</div>'}</div>`;
   typeset(el);};
@@ -790,7 +822,7 @@ window.qadd=function(btn){
   btn.disabled=true;msg.textContent='…';
   fetch('/qadd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,body})})
     .then(r=>r.json()).then(j=>{btn.disabled=false;
-      if(j.ok){QS=j.questions||QS;qbadge();showQuestions();
+      if(j.ok){QS=j.questions||QS;qbadge();renderQuestions();
         document.getElementById('qmsg').textContent='✓ '+(j.msg||'已记录')+' — 可点「📡 立即匹配」';}
       else msg.textContent='⚠ '+(j.msg||'failed');})
     .catch(e=>{btn.disabled=false;msg.textContent='⚠ '+e;});};
@@ -799,12 +831,12 @@ window.qmatch=function(btn){
   if(!LIVE){msg.innerHTML='需要 <code>viz.py --serve</code>';return;}
   btn.disabled=true;msg.textContent='📡 匹配中…（LLM 判断，约 1 分钟）';
   fetch('/qmatch',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
-    .then(r=>r.json()).then(j=>{QS=j.questions||QS;qbadge();showQuestions();
+    .then(r=>r.json()).then(j=>{QS=j.questions||QS;qbadge();renderQuestions();
       document.getElementById('qmsg').textContent=(j.ok?'✓ ':'⚠ ')+(j.msg||'');})
     .catch(e=>{btn.disabled=false;msg.textContent='⚠ '+e;});};
 window.qsolve=function(id){
   fetch('/qsolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})
-    .then(r=>r.json()).then(j=>{QS=j.questions||QS;qbadge();showQuestions();
+    .then(r=>r.json()).then(j=>{QS=j.questions||QS;qbadge();renderQuestions();
       document.getElementById('qmsg').textContent=(j.ok?'✓ ':'⚠ ')+(j.msg||'');});};
 const lg=document.getElementById('legend');let lh='<div style="font-weight:600;margin-bottom:5px">Areas</div>';
 for(const[a,c]of Object.entries(colors)){if(a==='_other')continue;lh+=`<div class="row"><span class="dot" style="background:${c}"></span>${a}</div>`;}
@@ -816,7 +848,7 @@ lg.innerHTML=lh;
 // ---- library search + note reading (Obsidian-in-the-web) ----
 const NOTE_TMPL='## 核心思想\n（一两句话：这篇到底做了什么、解决了什么问题）\n\n## 为什么重要 / 我能借鉴\n\n## 和哪些论文相关\n- [[在这里关联其他论文]]\n\n## 疑问 / TODO\n- ';
 function isDefaultTmpl(v){const n=(v||'').replace(/\s+/g,' ').trim();return n===''||/Your take: what|\[ \] Worth reading/.test(n);}
-window.openNote=function(slug){
+window.openNote=function(slug){window._lastView={kind:'note',slug:slug};document.getElementById('detail').dataset.qopen='';
   const el=document.getElementById('detail');el.innerHTML='<div class="empty">loading note…</div>';
   fetch('/note?id='+encodeURIComponent(slug)).then(r=>r.json()).then(j=>{
     if(!j.ok){el.innerHTML='<div class="empty">note not found</div>';return;}
@@ -824,7 +856,8 @@ window.openNote=function(slug){
     const a=j.arxiv,op=document.getElementById('origpanel'),origOpen=op&&op.style.display==='block';
     let btns='<div class="sec btnrow">';
     if(a){btns+=`<button class="deepbtn" onclick="deepread('${esc(a)}',this)">🔬 ${j.deep?'Regenerate':'Generate'} deep read</button>
-      <button class="origbtn" onclick="toggleOrig('${esc(a)}',this)">📄 ${origOpen?'Hide':'Show'} original →</button>`;}
+      <button class="origbtn" onclick="toggleOrig('${esc(a)}',this)">📄 ${origOpen?'Hide':'Show'} original →</button>
+      <button class="origbtn" onclick="toggleQA('${esc(a)}')">💬 提问</button>`;}
     if(j.editable){btns+=`<button class="origbtn" onclick="editNote()">✍️ 写/改综合</button>`;}
     btns+='<span class="deepmsg" id="deepmsg"></span></div>';
     const stars=`<div class="sec"><div class="starrow" id="starrow">${[1,2,3,4,5].map(i=>
@@ -846,7 +879,7 @@ window.openNote=function(slug){
       <span class="pill">📚 你的库</span>${a?`<span class="pill"><a href="https://arxiv.org/abs/${esc(a)}" target="_blank">arXiv ↗</a></span>`:''}
       ${stars}
       <div class="md note" id="notemd">${md2html(j.md)}</div>
-      ${btns}<div id="noteedit"></div>${deepBox}${rel}${fbrow}</div>`;
+      ${btns}<div id="qabox"></div><div id="noteedit"></div>${deepBox}${rel}${fbrow}</div>`;
     const m=document.getElementById('notemd');
     m.querySelectorAll('.wl').forEach(w=>w.onclick=()=>openNote(w.dataset.note));
     el.querySelectorAll('.result').forEach(x=>x.onclick=()=>openNote(x.dataset.note));
@@ -855,6 +888,36 @@ window.openNote=function(slug){
     if(origOpen&&a)loadOrig(a);
   }).catch(e=>{el.innerHTML='<div class="empty">⚠ '+e+'</div>';});
 };
+// ---- grounded Q&A over the paper's full text ----
+window._qa=window._qa||{};
+function renderQA(id){
+  const box=document.getElementById('qabox');if(!box)return;
+  const th=window._qa[id]||[];
+  box.innerHTML=`<div class="sec"><div class="lab">💬 问这篇论文 · 基于原文回答，附出处</div>
+    <div id="qathread">${th.map(h=>`<div class="qaq">🙋 ${esc(h.q)}</div><div class="qaa md">${md2html(h.a)}</div>`).join('')}</div>
+    <textarea id="qain" class="notearea" style="min-height:54px" placeholder="例如：对齐损失加在第几层？为什么是那一层？训练开销增加多少？"></textarea>
+    <div class="btnrow" style="margin-top:6px">
+      <button class="deepbtn" id="qabtn" onclick="askPaper('${esc(id)}')">提问</button>
+      <span class="deepmsg" id="qamsg">${LIVE?'':'(需要 viz.py --serve)'}</span></div></div>`;
+  const t=document.getElementById('qathread');if(t)t.scrollTop=t.scrollHeight;
+  const ta=document.getElementById('qain');
+  ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();askPaper(id);}});
+  typeset(box);ta.focus();}
+window.toggleQA=function(id){
+  const box=document.getElementById('qabox');if(!box)return;
+  if(box.dataset.open==='1'){box.dataset.open='';box.innerHTML='';return;}
+  box.dataset.open='1';renderQA(id);};
+window.askPaper=function(id){
+  const msg=document.getElementById('qamsg'),btn=document.getElementById('qabtn'),ta=document.getElementById('qain');
+  if(!LIVE){msg.innerHTML='需要 <code>viz.py --serve</code>';return;}
+  const q=(ta.value||'').trim();if(!q){msg.textContent='先写个问题';return;}
+  btn.disabled=true;msg.textContent='📖 读原文并作答…（约 30–60s）';
+  const hist=(window._qa[id]||[]).map(h=>({q:h.q,a:h.a}));
+  fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,q,history:hist})})
+    .then(r=>r.json()).then(j=>{btn.disabled=false;
+      if(j.ok){(window._qa[id]=window._qa[id]||[]).push({q:q,a:j.answer});renderQA(id);}
+      else msg.textContent='⚠ '+(j.msg||'失败');})
+    .catch(e=>{btn.disabled=false;msg.textContent='⚠ '+e;});};
 window.rateNote=function(slug,n){
   const msg=document.getElementById('ratemsg');
   if(!LIVE){msg.textContent='需要 viz.py --serve';return;}
@@ -992,6 +1055,10 @@ def note_markdown(slug):
             title = m.group(1).strip() if m else slug
             am = re.search(r"^arxiv:\s*(\S+)\s*$", t, re.M)
             arxiv = am.group(1).strip() if am else ""
+            if not arxiv:   # some Zotero items lack the field — recover id from DOI/URL
+                m2 = (re.search(r"10\.48550/arXiv\.(\d{4}\.\d{4,5})", t)
+                      or re.search(r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5})", t))
+                arxiv = m2.group(1) if m2 else ""
             km = re.search(r"^zotero_key:\s*(\S+)\s*$", t, re.M)
             zkey = km.group(1).strip() if km else ""
             below = t.split(MARKER_NOTE, 1)[1].strip() if MARKER_NOTE in t else ""
@@ -1149,26 +1216,113 @@ def _fetch_pdf_bytes(arxiv_id):
     return None
 
 
+def _local_pdf(arxiv_id):
+    """A PDF for the paper INSIDE the project (so the headless agent may Read it).
+    Prefers the user's Zotero copy (often camera-ready), located via the note;
+    falls back to downloading the arXiv PDF. Returns a path or None."""
+    os.makedirs(PDFCACHE, exist_ok=True)
+    p = os.path.join(PDFCACHE, f"{arxiv_id}.pdf")
+    if os.path.exists(p) and os.path.getsize(p) > 1000:
+        return p
+    for f in glob.glob(os.path.join(LIT, "*.md")):
+        t = open(f, encoding="utf-8").read(3000)
+        if re.search(rf"^arxiv:\s*{re.escape(str(arxiv_id))}\s*$", t, re.M):
+            m = re.search(r"file://(\S+?\.pdf)", t)
+            if m:
+                src = urllib.parse.unquote(m.group(1))
+                if os.path.exists(src):
+                    shutil.copyfile(src, p)
+                    return p
+            break
+    return p if _fetch_pdf_bytes(arxiv_id) else None
+
+
+def _pdf_unescape(b):
+    def sub(m):
+        c = m.group(1)
+        if c and all(0x30 <= x <= 0x37 for x in c):   # octal escape \ddd
+            return bytes([int(c, 8) & 0xFF])
+        return {b"n": b"\n", b"r": b" ", b"t": b" ", b"b": b"", b"f": b""}.get(c, c)
+    return re.sub(rb"\\([0-7]{1,3}|.)", sub, b)
+
+
+def _pdf_extract_text(pdf_path):
+    """Crude stdlib text extraction (pdfLaTeX-style PDFs): inflate Flate streams,
+    read Tj/TJ show ops. Plenty to ground the LLM; returns '' for PDFs with
+    unmappable CID encodings (caller falls back further)."""
+    import zlib
+    try:
+        data = open(pdf_path, "rb").read()
+    except OSError:
+        return ""
+    out = []
+    for s in re.findall(rb"stream\r?\n(.*?)endstream", data, re.S):
+        try:
+            t = zlib.decompress(s)
+        except Exception:
+            continue
+        if b"Tj" not in t and b"TJ" not in t:
+            continue
+        # linear token scan (a one-regex parse of TJ arrays backtracks
+        # catastrophically on multi-MB streams)
+        chunk, space = [], False
+        for m in re.finditer(
+                rb"\((?:[^()\\]|\\.)*\)|-?\d+(?:\.\d+)?|TJ|Tj|T\*|Td|TD", t):
+            tok = m.group(0)
+            if tok.startswith(b"("):
+                if space and chunk:
+                    chunk.append(b" ")
+                space = False
+                chunk.append(_pdf_unescape(tok[1:-1]))
+            elif tok in (b"TJ", b"Tj", b"T*", b"Td", b"TD"):
+                space = True                   # show-op boundary ≈ word/line break
+            else:
+                try:                           # big negative kern ≈ word space
+                    if float(tok) < -120:
+                        space = True
+                except ValueError:
+                    pass
+        if not chunk:
+            continue
+        # per-stream gate: body text passes; vector-figure glyph soup and
+        # CID-encoded streams don't — drop them instead of poisoning the whole
+        st = b"".join(chunk).decode("latin-1", "ignore")
+        letters = sum(c.isalpha() or c.isspace() for c in st)
+        if len(st) > 200 and letters / len(st) > 0.6:
+            out.append(st)
+    text = "\n".join(out)
+    # control chars (octal escapes from odd encodings) break subprocess argv
+    text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", " ", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text if len(text) > 5000 else ""
+
+
 def _paper_text(arxiv_id):
-    """Full plain text (for the deep-read prompt). Cached."""
+    """Full plain text (for deep read / Q&A). arXiv HTML first; local-PDF text
+    extraction as fallback (many papers have no HTML render). Cached."""
     cache = os.path.join(PDFCACHE, f"{arxiv_id}.txt")
     if os.path.exists(cache) and os.path.getsize(cache) > 2000:
         return open(cache, encoding="utf-8").read()
     html, _ = _fetch_html(arxiv_id)
-    if not html:
-        return None
-    html = re.sub(r"(?is)<(script|style|nav|header|footer)\b.*?</\1>", " ", html)
-    text = re.sub(r"(?s)<[^>]+>", "\n", html)
-    text = re.sub(r"&#?\w+;", " ", text)
-    lines, out = [re.sub(r"[ \t]+", " ", ln).strip() for ln in text.split("\n")], []
-    for ln in lines:
-        if ln == "" and (not out or out[-1] == ""):
-            continue
-        out.append(ln)
-    text = "\n".join(out).strip()
-    if len(text) > 2000:
-        open(cache, "w", encoding="utf-8").write(text)
-        return text
+    if html:
+        html = re.sub(r"(?is)<(script|style|nav|header|footer)\b.*?</\1>", " ", html)
+        text = re.sub(r"(?s)<[^>]+>", "\n", html)
+        text = re.sub(r"&#?\w+;", " ", text)
+        lines, out = [re.sub(r"[ \t]+", " ", ln).strip() for ln in text.split("\n")], []
+        for ln in lines:
+            if ln == "" and (not out or out[-1] == ""):
+                continue
+            out.append(ln)
+        text = "\n".join(out).strip()
+        if len(text) > 2000:
+            open(cache, "w", encoding="utf-8").write(text)
+            return text
+    pdf = _local_pdf(arxiv_id)
+    if pdf:
+        text = _pdf_extract_text(pdf)
+        if text:
+            open(cache, "w", encoding="utf-8").write(text)
+            return text
     return None
 
 
@@ -1215,13 +1369,39 @@ def _paper_html(arxiv_id):
     return None
 
 
+def answer_question(arxiv_id, q, history=None):
+    """Grounded Q&A over the paper's full text. Returns (ok, answer_or_error)."""
+    q = (q or "").strip()
+    if not q:
+        return False, "empty question"
+    text = _paper_text(arxiv_id)
+    if not text:
+        pdf = _local_pdf(arxiv_id)
+        if not pdf:
+            return False, "no full text available for this paper"
+        text = (f"(本篇没有可提取的全文。请先用 Read 工具阅读这个 PDF 再回答："
+                f"{pdf})")
+    hist = ""
+    for h in (history or [])[-4:]:
+        if isinstance(h, dict) and h.get("q"):
+            hist += f"[此前问答] Q: {str(h['q'])[:200]}\nA: {str(h.get('a',''))[:400]}\n\n"
+    prompt = ASK_PROMPT.format(history=hist, text=text[:60000], q=q[:1000])
+    return llm.complete(prompt, timeout=300)
+
+
 def run_deepread(arxiv_id):
     """Fetch the paper's full text (arXiv HTML) and run the 6-section deep-read via
     `claude -p`. Stores the markdown into Inbox/.digest.json under the paper's
     `deep` field. Returns (ok, markdown_or_error)."""
     text = _paper_text(arxiv_id)
     if not text:
-        return False, "could not fetch the paper's HTML full text from arXiv"
+        # no arXiv HTML render (common for pre-2024 / failed conversions) —
+        # hand the agent the actual PDF to read instead
+        pdf = _local_pdf(arxiv_id)
+        if not pdf:
+            return False, "no arXiv HTML render and no PDF available for this paper"
+        text = (f"(本篇没有 arXiv HTML 全文。请先用 Read 工具完整阅读这个 PDF 文件，"
+                f"再输出分析：{pdf})")
     prompt = DEEP_PROMPT.format(text=text[:60000])
     ok, deep = llm.complete(prompt)
     if not ok:
@@ -1392,6 +1572,9 @@ def serve(date, port):
             if self.path == "/deepread":
                 ok, out = run_deepread(pid)
                 return self._json(200, {"ok": ok, **({"deep": out} if ok else {"msg": out})})
+            if self.path == "/ask":
+                ok, out = answer_question(pid, req.get("q"), req.get("history"))
+                return self._json(200, {"ok": ok, **({"answer": out} if ok else {"msg": out})})
             if self.path == "/savenote":
                 ok, msg = save_note(pid, req.get("text", ""))
                 return self._json(200, {"ok": ok, "msg": msg})
