@@ -461,6 +461,11 @@ HTML_TEMPLATE = r"""<!doctype html>
   .qsolve{cursor:pointer;background:none;border:1px solid var(--line);border-radius:6px;color:var(--mut);font-size:12px;padding:2px 7px;margin-left:6px;vertical-align:2px}
   .qsolve:hover{border-color:#3ab07a;color:#3ab07a}
   .qform input.libsearch{margin-bottom:8px}
+  .starrow{display:flex;align-items:center;gap:2px}
+  .starrow .star{cursor:pointer;font-size:22px;line-height:1;color:#3a4258;transition:.1s}
+  .starrow .star.on{color:#f5c542}
+  .starrow .star:hover{transform:scale(1.15)}
+  .starrow .deepmsg{margin-left:9px}
   .legend{position:fixed;right:14px;top:12px;background:rgba(27,30,40,.85);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12px}
   .legend .row{display:flex;align-items:center;margin:3px 0}
   .legend .dot{width:11px;height:11px;border-radius:50%;margin-right:7px;flex:none}
@@ -818,10 +823,19 @@ window.openNote=function(slug){
     window._note={slug:slug,below:j.below||''};
     const a=j.arxiv,op=document.getElementById('origpanel'),origOpen=op&&op.style.display==='block';
     let btns='<div class="sec btnrow">';
-    if(a){btns+=`<button class="deepbtn" onclick="deepread('${esc(a)}',this)">🔬 Generate deep read</button>
+    if(a){btns+=`<button class="deepbtn" onclick="deepread('${esc(a)}',this)">🔬 ${j.deep?'Regenerate':'Generate'} deep read</button>
       <button class="origbtn" onclick="toggleOrig('${esc(a)}',this)">📄 ${origOpen?'Hide':'Show'} original →</button>`;}
     if(j.editable){btns+=`<button class="origbtn" onclick="editNote()">✍️ 写/改综合</button>`;}
     btns+='<span class="deepmsg" id="deepmsg"></span></div>';
+    const stars=`<div class="sec"><div class="starrow" id="starrow">${[1,2,3,4,5].map(i=>
+      `<span class="star${i<=(j.rating||0)?' on':''}" onclick="rateNote('${esc(slug)}',${i})" title="${i}/5">★</span>`).join('')}
+      <span class="deepmsg" id="ratemsg">${j.rating?`${j.rating}/5`:'打分 → 调推荐权重（5=多来这类，1=少来）'}</span></div></div>`;
+    let fbrow='';
+    if(a){fbrow=`<div class="fb">
+      <button class="on" onclick="fb('${esc(a)}','keep',this)">👍 多来这类</button>
+      <button class="off" onclick="fb('${esc(a)}','drop',this)">👎 少来这类</button>
+    </div><div class="fbmsg" id="fbmsg">${LIVE?'':'(run <code>viz.py --serve</code> for live buttons)'}</div>`;}
+    const deepBox=`<div class="deepwrap" id="deepwrap">${j.deep?`<div class="sec"><div class="lab">Deep read (method analysis)</div><div class="md" id="deepmd"></div></div>`:''}</div>`;
     let rel='';
     if(j.related&&j.related.length){
       rel=`<div class="sec"><div class="lab">🔗 相关论文（共享概念）</div>`+
@@ -830,15 +844,25 @@ window.openNote=function(slug){
     }
     el.innerHTML=`<div class="card"><h2>${esc(j.title)}</h2>
       <span class="pill">📚 你的库</span>${a?`<span class="pill"><a href="https://arxiv.org/abs/${esc(a)}" target="_blank">arXiv ↗</a></span>`:''}
+      ${stars}
       <div class="md note" id="notemd">${md2html(j.md)}</div>
-      ${btns}${rel}<div class="deepwrap" id="deepwrap"></div><div id="noteedit"></div></div>`;
+      ${btns}<div id="noteedit"></div>${deepBox}${rel}${fbrow}</div>`;
     const m=document.getElementById('notemd');
     m.querySelectorAll('.wl').forEach(w=>w.onclick=()=>openNote(w.dataset.note));
     el.querySelectorAll('.result').forEach(x=>x.onclick=()=>openNote(x.dataset.note));
-    typeset(m);
+    if(j.deep){const dm=document.getElementById('deepmd');if(dm)dm.innerHTML=md2html(j.deep);}
+    typeset(el);
     if(origOpen&&a)loadOrig(a);
   }).catch(e=>{el.innerHTML='<div class="empty">⚠ '+e+'</div>';});
 };
+window.rateNote=function(slug,n){
+  const msg=document.getElementById('ratemsg');
+  if(!LIVE){msg.textContent='需要 viz.py --serve';return;}
+  fetch('/rate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:slug,rating:n})})
+    .then(r=>r.json()).then(j=>{
+      if(j.ok)document.querySelectorAll('#starrow .star').forEach((s,i)=>s.classList.toggle('on',i<n));
+      msg.textContent=j.ok?`${n}/5 ✓ 已记录`:'⚠ '+(j.msg||'失败');})
+    .catch(e=>{msg.textContent='⚠ '+e;});};
 window.editNote=function(){
   const box=document.getElementById('noteedit');
   box.innerHTML=`<div class="sec"><div class="lab">我的笔记 · 写下你的理解（Markdown，可用 [[双链]]）</div>
@@ -968,6 +992,8 @@ def note_markdown(slug):
             title = m.group(1).strip() if m else slug
             am = re.search(r"^arxiv:\s*(\S+)\s*$", t, re.M)
             arxiv = am.group(1).strip() if am else ""
+            km = re.search(r"^zotero_key:\s*(\S+)\s*$", t, re.M)
+            zkey = km.group(1).strip() if km else ""
             below = t.split(MARKER_NOTE, 1)[1].strip() if MARKER_NOTE in t else ""
             editable = (d == LIT) and (MARKER_NOTE in t)   # only your Literature notes
             body = re.sub(r"^---\n.*?\n---\n", "", t, count=1, flags=re.S)   # drop frontmatter
@@ -980,8 +1006,47 @@ def note_markdown(slug):
             if bl:
                 body += "\n\n## 🔗 Referenced by\n" + "\n".join(
                     f"- [[{s}|{ti}]]" for s, ti in bl)
-            return title, body.strip(), below, editable, arxiv
-    return None, None, None, None, None
+            return title, body.strip(), below, editable, arxiv, zkey
+    return None, None, None, None, None, None
+
+
+def save_rating(slug, rating):
+    """Store a 1-5 star rating for a library note (keyed by zotero_key in
+    Inbox/.ratings.json — sync-proof; paperlib feeds it into the recommender)."""
+    try:
+        rating = int(rating)
+    except (TypeError, ValueError):
+        return False, "bad rating"
+    if not (1 <= rating <= 5) or not slug or "/" in slug or ".." in slug:
+        return False, "bad request"
+    p = os.path.join(LIT, slug + ".md")
+    if not os.path.exists(p):
+        return False, "note not found"
+    head = open(p, encoding="utf-8").read(800)
+    km = re.search(r"^zotero_key:\s*(\S+)", head, re.M)
+    if not km:
+        return False, "note has no zotero_key"
+    am = re.search(r"^arxiv:\s*(\S+)", head, re.M)
+    rp = os.path.join(INBOX, ".ratings.json")
+    try:
+        data = json.load(open(rp, encoding="utf-8")) if os.path.exists(rp) else {}
+    except Exception:
+        data = {}
+    data[km.group(1)] = {"rating": rating, "slug": slug,
+                         "arxiv": am.group(1) if am else "",
+                         "date": dt.date.today().isoformat()}
+    json.dump(data, open(rp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    return True, f"{rating}/5 已记录 — 会影响推荐画像"
+
+
+def note_rating(zkey):
+    rp = os.path.join(INBOX, ".ratings.json")
+    try:
+        data = json.load(open(rp, encoding="utf-8")) if os.path.exists(rp) else {}
+        v = data.get(zkey)
+        return int(v["rating"] if isinstance(v, dict) else v) if v else 0
+    except Exception:
+        return 0
 
 
 def save_note(slug, text):
@@ -1268,11 +1333,13 @@ def serve(date, port):
                 return self._json(200, {"ok": True, "results": library_search(q)})
             if pth == "/note":
                 slug = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", [""])[0]
-                title, md, below, editable, arxiv = note_markdown(slug)
+                title, md, below, editable, arxiv, zkey = note_markdown(slug)
                 if md is None:
                     return self._json(404, {"ok": False, "msg": "note not found"})
+                deep = (load_digest().get(str(arxiv), {}) or {}).get("deep", "") if arxiv else ""
                 return self._json(200, {"ok": True, "title": title, "md": md, "below": below,
                                         "editable": editable, "arxiv": arxiv,
+                                        "rating": note_rating(zkey), "deep": deep,
                                         "related": related_papers(slug)})
             if pth == "/stub":
                 aid = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("id", [""])[0]
@@ -1298,6 +1365,9 @@ def serve(date, port):
                 req = json.loads(self.rfile.read(ln) or b"{}")
             except Exception:
                 return self._json(400, {"ok": False, "msg": "bad json"})
+            if self.path == "/rate":
+                ok, msg = save_rating(str(req.get("id", "")), req.get("rating"))
+                return self._json(200, {"ok": ok, "msg": msg})
             if self.path == "/qadd":
                 ok, msg = question_add(req.get("title", ""), req.get("body", ""))
                 return self._json(200, {"ok": ok, "msg": msg,

@@ -21,6 +21,7 @@ READER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "zotero_read.p
 CONF = os.path.join(ROOT, ".interests.yaml")
 FEEDBACK = os.path.join(ROOT, "Inbox", ".feedback.jsonl")
 SURFACED = os.path.join(ROOT, "Inbox", ".surfaced.txt")
+RATINGS = os.path.join(ROOT, "Inbox", ".ratings.json")
 MARKER = "<!-- ===== Below this line is yours; sync never touches it ===== -->"
 
 STOP = set("""a an the of for and or to in on with from this that these those we our
@@ -95,11 +96,32 @@ def norm_title(t):
     return re.sub(r"[^a-z0-9]", "", (t or "").lower())[:60]
 
 
+def load_ratings():
+    """zotero_key -> 1..5 personal star ratings (set in the web note view)."""
+    if not os.path.exists(RATINGS):
+        return {}
+    try:
+        data = json.load(open(RATINGS, encoding="utf-8"))
+    except Exception:
+        return {}
+    out = {}
+    for k, v in data.items():
+        r = v.get("rating") if isinstance(v, dict) else v
+        try:
+            out[k] = max(1, min(5, int(r)))
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
 def learn_profile(items, conf):
+    ratings = load_ratings()
     freq = {}
     for it in items:
-        # weight highlighted papers higher: they signal real engagement
+        # weight highlighted papers higher: they signal real engagement;
+        # explicit star ratings push further in both directions (3 = neutral)
         w_mult = 1 + min(it.get("nAnnotations", 0), 10) / 5.0
+        w_mult = max(0.1, w_mult + (ratings.get(it.get("key"), 3) - 3) * 0.6)
         text = it["title"] + " " + " ".join(it.get("tags", []))
         for w in tokenize(text):
             freq[w] = freq.get(w, 0) + w_mult
@@ -265,10 +287,15 @@ def s2_recall(items, conf, neg_ids, pos_ids=None):
     """Interest-adaptive recommendations seeded by the user's own library."""
     if not conf.get("s2_enabled"):
         return []
-    # seeds: most-annotated + most-recent library papers that have arXiv ids,
-    # plus papers the user explicitly 'kept' during triage.
-    seeds = [it for it in items if it.get("arxiv")]
-    seeds.sort(key=lambda x: (x.get("nAnnotations", 0), x.get("dateAdded", "")), reverse=True)
+    # seeds: most-annotated / highest-rated + most-recent library papers that
+    # have arXiv ids, plus papers the user explicitly 'kept' during triage.
+    # Papers the user rated ≤2 are dropped from seeding entirely.
+    ratings = load_ratings()
+    seeds = [it for it in items
+             if it.get("arxiv") and ratings.get(it.get("key"), 3) > 2]
+    seeds.sort(key=lambda x: (x.get("nAnnotations", 0)
+                              + 2 * (ratings.get(x.get("key"), 3) - 3),
+                              x.get("dateAdded", "")), reverse=True)
     pos = [f"ARXIV:{a}" for a in (pos_ids or []) if re.fullmatch(r"\d{4}\.\d{4,5}", a)]
     pos += [f"ARXIV:{it['arxiv']}" for it in seeds[:conf["s2_seeds"]]]
     pos = list(dict.fromkeys(pos))  # dedupe, keep order

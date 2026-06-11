@@ -95,7 +95,11 @@ always follows the LATEST fetch (a server left running overnight won't serve
 yesterday); an explicit `--date` pins it. Papers the user added to Zotero
 **today** always appear in today's graph as 📥 ring nodes (fetch never
 recommends in-library papers, so this is how a self-added paper shows up).
-No external deps.
+Library-note cards (ring nodes / search results) have the full toolset too:
+⭐ 1–5 rating (stored in `Inbox/.ratings.json` by zotero_key, sync-proof —
+paperlib feeds it into keyword weights and S2 seeding: 5 = more like this,
+≤2 = excluded from seeds), 👍/👎 feedback, 🔬 deep read (cached and re-shown
+on reopen), 📄 original PDF, ✍️ synthesis editor. No external deps.
 
 `zotero_add.py` uses the Zotero **connector** (Settings → Advanced → "Allow other
 applications…"). It saves the item AND uploads the real PDF as a stored attachment
