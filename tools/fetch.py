@@ -78,10 +78,26 @@ def main():
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
     # Machine-readable copy for downstream tooling (viz.py builds the graph from it).
+    # Same-day runs MERGE (top-up fetches must not wipe the morning batch from the
+    # graph); an empty pick never overwrites an existing batch.
     if not args.dry_run:
-        with open(os.path.join(P.INBOX, ".last_fetch.json"), "w", encoding="utf-8") as f:
-            json.dump({"date": dt.date.today().isoformat(), "papers": summary},
-                      f, ensure_ascii=False, indent=2)
+        out_path = os.path.join(P.INBOX, ".last_fetch.json")
+        today = dt.date.today().isoformat()
+        prev = {}
+        if os.path.exists(out_path):
+            try:
+                prev = json.load(open(out_path, encoding="utf-8"))
+            except Exception:
+                prev = {}
+        merged = summary
+        if prev.get("date") == today:
+            new_ids = {str(p.get("id")) for p in summary}
+            merged = [p for p in prev.get("papers", [])
+                      if str(p.get("id")) not in new_ids] + summary
+        if merged:
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump({"date": today, "papers": merged},
+                          f, ensure_ascii=False, indent=2)
 
     n_arxiv = sum(1 for c in raw if c["source"] == "arxiv")
     n_s2 = sum(1 for c in raw if c["source"] == "s2")
