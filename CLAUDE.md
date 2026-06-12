@@ -67,6 +67,10 @@ highlight, or the PDF. When you use a paper, link it as `[[note-name]]`.
 in `tools/paperlib.py`. Per-source quotas (`top_arxiv`, `top_s2` in
 `.interests.yaml`) keep daily freshness from being crowded out by recommendations;
 already-surfaced papers are tracked in `Inbox/.surfaced.txt` and never repeated.
+Strong candidates that LOSE a daily quota race carry over in `Inbox/.nearmiss.json`
+(score ≥ `nearmiss_min` 8.0, up to 80 papers / 14 days) and re-compete every run —
+so a good paper isn't gone forever just because it appeared on a crowded day and
+the 3-day window slid past (that's how Ego-Pi was missed, 2026-06-12).
 fetch.py also writes a machine-readable `Inbox/.last_fetch.json`; **same-day runs
 merge** into it (and an empty pick never wipes it), so re-running fetch.py during
 the day only ADDs papers. daily.sh exploits this: the first slot (07:00) runs the

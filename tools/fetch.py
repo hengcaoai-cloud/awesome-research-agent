@@ -46,6 +46,9 @@ def main():
         raw += P.arxiv_recall(conf, cutoff)
     if args.source in ("s2", "both"):
         raw += P.s2_recall(items, conf, neg_ids, pos_ids)
+    # near-miss carry-over: strong papers that lost an earlier quota race keep
+    # competing (otherwise the 3-day window slides past them and they're gone)
+    raw += P.load_nearmiss()
 
     raw = [c for c in raw if c["title"] and not P.muted(c, conf)]
     raw = P.dedup(raw, existing_arxiv, existing_titles)
@@ -68,6 +71,9 @@ def main():
         for c in picked:
             c["_path"] = os.path.relpath(P.write_stub(c), P.ROOT)
         P.mark_surfaced(ident(c) for c in picked)
+        picked_ids = {ident(c) for c in picked}
+        n_nm = P.save_nearmiss([c for c in raw if ident(c) not in picked_ids], conf)
+        print(f"near-miss pool: {n_nm} candidate(s) carried over", file=sys.stderr)
 
     summary = [{
         "score": c["_score"], "source": c["source"], "title": c["title"],

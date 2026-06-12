@@ -162,6 +162,51 @@ def mark_surfaced(ids):
                 f.write(i + "\n")
 
 
+NEARMISS = os.path.join(ROOT, "Inbox", ".nearmiss.json")
+
+
+def load_nearmiss():
+    """Strong candidates that lost a recent daily quota race — they re-enter
+    the competition every run until surfaced or stale (≈2 weeks)."""
+    if not os.path.exists(NEARMISS):
+        return []
+    try:
+        return json.load(open(NEARMISS, encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def save_nearmiss(cands, conf):
+    """Persist this run's quota losers (already filtered/scored). Keeps the
+    best `nearmiss_keep`, drops anything first seen > `nearmiss_days` ago."""
+    today = dt.date.today()
+    out, seen = [], set()
+    thr = float(conf.get("nearmiss_min", 8.0))
+    for c in sorted(cands, key=lambda x: -x.get("_score", 0)):
+        if c.get("_score", 0) < thr:
+            break
+        key = c.get("arxiv") or c.get("s2id") or norm_title(c["title"])
+        if key in seen:
+            continue
+        seen.add(key)
+        first = c.get("_seen") or today.isoformat()
+        try:
+            if (today - dt.date.fromisoformat(first)).days > int(conf.get("nearmiss_days", 14)):
+                continue
+        except ValueError:
+            first = today.isoformat()
+        rec = {k: c.get(k) for k in ("arxiv", "s2id", "title", "abstract", "authors",
+                                     "published", "url", "categories", "venue_hint",
+                                     "venue", "source")}
+        rec["_seen"] = first
+        out.append(rec)
+        if len(out) >= int(conf.get("nearmiss_keep", 80)):
+            break
+    with open(NEARMISS, "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False, indent=1)
+    return len(out)
+
+
 CODE_RE = re.compile(
     r"github\.com/|gitlab\.com/|\bcode (?:is |will be )?(?:available|released)|"
     r"\bwe release\b|project page|\bopen-?sourced?\b|huggingface\.co/", re.I)
