@@ -95,6 +95,9 @@ always follows the LATEST fetch (a server left running overnight won't serve
 yesterday); an explicit `--date` pins it. Papers the user added to Zotero
 **today** always appear in today's graph as 📥 ring nodes (fetch never
 recommends in-library papers, so this is how a self-added paper shows up).
+The 📥 **未处理的推荐** sidebar panel lists every surfaced-but-untriaged Inbox
+stub (best score first) with inline 👍/👎/➕ — so a good paper from an older
+batch can't silently drown (the graph itself only shows the latest fetch).
 Library-note cards (ring nodes / search results) have the full toolset too:
 ⭐ 1–5 rating (stored in `Inbox/.ratings.json` by zotero_key, sync-proof —
 paperlib feeds it into keyword weights and S2 seeding: 5 = more like this,

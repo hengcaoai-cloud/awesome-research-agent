@@ -361,7 +361,8 @@ def build_graph(papers, digest, lib, date=None):
 def render_html(date, nodes, edges, live=False):
     data = json.dumps({"nodes": nodes, "edges": edges, "colors": AREA_COLOR,
                        "date": date, "live": live,
-                       "questions": questions_payload()}, ensure_ascii=False)
+                       "questions": questions_payload(),
+                       "inbox": inbox_backlog()}, ensure_ascii=False)
     return HTML_TEMPLATE.replace("__DATA__", data).replace("__DATE__", html.escape(date))
 
 
@@ -480,6 +481,10 @@ HTML_TEMPLATE = r"""<!doctype html>
   .starrow .star.on{color:#f5c542}
   .starrow .star:hover{transform:scale(1.15)}
   .starrow .deepmsg{margin-left:9px}
+  .ibrow{padding:9px 12px;border:1px solid var(--line);border-radius:9px;margin:8px 0;cursor:pointer}
+  .ibrow:hover{background:#222634}
+  .ibrow .rt{font-size:14px;color:#e3e7f2;line-height:1.4}
+  .ibrow .rm{font-size:12px;color:var(--mut);margin-top:3px}
   #qathread{max-height:340px;overflow:auto}
   .qaq{font-size:13.5px;color:#dfe4f5;background:#222a40;border-radius:9px;padding:7px 11px;margin:9px 0 5px}
   .qaa{border-left:2px solid #3ab07a;padding:2px 0 2px 11px;margin:0 0 6px}
@@ -493,6 +498,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   <div id="side"><h1>Today's recommendations</h1><div class="sub">__DATE__ · click a node, or search your library ↓</div>
     <input id="libsearch" class="libsearch" type="search" placeholder="🔎 Search your library — title, abstract, your highlights…" autocomplete="off">
     <button class="qopen" onclick="showQuestions()">❓ 问题与想法 · 雷达 <span id="qbadge"></span></button>
+    <button class="qopen" onclick="showInbox()">📥 未处理的推荐 <span id="ibadge"></span></button>
     <div id="detail"><div class="empty">Click a paper node (solid dot) for its value card; click a library paper (ring) to read its note + your highlights; or search above.</div></div>
   </div>
   <div id="origpanel" style="display:none"></div>
@@ -691,7 +697,7 @@ cv.addEventListener('wheel',e=>{e.preventDefault();userMoved=true;const f=e.delt
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function sec(l,v){return v?`<div class="sec"><div class="lab">${l}</div><div class="val">${esc(v)}</div></div>`:'';}
 function select(n){sel=n;dirty=true;window._lastView={kind:'node',n:n};
-  const el0=document.getElementById('detail');el0.dataset.qopen='';
+  const el0=document.getElementById('detail');el0.dataset.qopen='';el0.dataset.iopen='';
   const d=n.detail||{},el=el0;
   if(n.type==='area'){el.innerHTML=`<div class="card"><h2>${esc(d.title)}</h2><span class="pill">interest area</span>
     <div class="sec"><div class="val">Papers and library notes linked here share concepts in this area of yours. Click them to compare.</div></div></div>`;return;}
@@ -795,7 +801,7 @@ function qbadge(){const h=QS.reduce((a,t)=>a+(t.hits||[]).length,0);
 qbadge();
 function relIcon(r){return ({'同问题':'🎯','组件':'🧩','撞车':'⚠️','旁证':'📎'})[r]||'📡';}
 window.closeQuestions=function(){
-  const el=document.getElementById('detail');el.dataset.qopen='';
+  const el=document.getElementById('detail');el.dataset.qopen='';el.dataset.iopen='';
   const v=window._lastView;
   if(v&&v.kind==='node'){select(v.n);return;}
   if(v&&v.kind==='note'){openNote(v.slug);return;}
@@ -805,7 +811,7 @@ window.showQuestions=function(){
   if(el0.dataset.qopen==='1'){closeQuestions();return;}   // sidebar button = toggle
   renderQuestions();};
 window.renderQuestions=function(){
-  sel=null;dirty=true;const el=document.getElementById('detail');el.dataset.qopen='1';
+  sel=null;dirty=true;const el=document.getElementById('detail');el.dataset.qopen='1';el.dataset.iopen='';
   const form=`<div class="qform">
     <input id="qtitle" class="libsearch" placeholder="新问题：一句话标题，如「触觉如何融入 VLA 的动作表征？」">
     <textarea id="qbody" class="notearea" style="min-height:84px" placeholder="背景 / 为什么难 / 你的直觉…（写得越具体，雷达匹配越准）"></textarea>
@@ -858,7 +864,8 @@ lg.innerHTML=lh;
 // ---- library search + note reading (Obsidian-in-the-web) ----
 const NOTE_TMPL='## 核心思想\n（一两句话：这篇到底做了什么、解决了什么问题）\n\n## 为什么重要 / 我能借鉴\n\n## 和哪些论文相关\n- [[在这里关联其他论文]]\n\n## 疑问 / TODO\n- ';
 function isDefaultTmpl(v){const n=(v||'').replace(/\s+/g,' ').trim();return n===''||/Your take: what|\[ \] Worth reading/.test(n);}
-window.openNote=function(slug){window._lastView={kind:'note',slug:slug};document.getElementById('detail').dataset.qopen='';
+window.openNote=function(slug){window._lastView={kind:'note',slug:slug};
+  const el0=document.getElementById('detail');el0.dataset.qopen='';el0.dataset.iopen='';
   const el=document.getElementById('detail');el.innerHTML='<div class="empty">loading note…</div>';
   fetch('/note?id='+encodeURIComponent(slug)).then(r=>r.json()).then(j=>{
     if(!j.ok){el.innerHTML='<div class="empty">note not found</div>';return;}
@@ -898,6 +905,48 @@ window.openNote=function(slug){window._lastView={kind:'note',slug:slug};document
     if(origOpen&&a)loadOrig(a);
   }).catch(e=>{el.innerHTML='<div class="empty">⚠ '+e+'</div>';});
 };
+// ---- inbox backlog: surfaced but never triaged ----
+let IB=DATA.inbox||[];
+function ibadge(){const b=document.getElementById('ibadge');if(b)b.textContent=IB.length?`${IB.length} 篇`:'';}
+ibadge();
+window.showInbox=function(){
+  const el=document.getElementById('detail');
+  if(el.dataset.iopen==='1'){closeQuestions();return;}     // toggle
+  if(LIVE){fetch('/inbox').then(r=>r.json()).then(j=>{IB=j.papers||IB;ibadge();renderInbox();}).catch(()=>renderInbox());}
+  else renderInbox();};
+window.renderInbox=function(){
+  sel=null;dirty=true;const el=document.getElementById('detail');el.dataset.iopen='1';el.dataset.qopen='';
+  const rows=IB.map((p,i)=>{
+    const badges=(p.venue?` 📌${esc(p.venue)}`:'')+(p.has_code?' 💻':'');
+    return `<div class="ibrow" onclick="ibExpand(${i})"><div class="rt">${p.score.toFixed(1)} · ${esc(p.title)}${badges}</div>
+      <div class="rm">${esc(p.published)} · ${(p.matched||[]).slice(0,5).map(esc).join(' · ')}</div>
+      <div class="ibx" id="ibx${i}" style="display:none" onclick="event.stopPropagation()"></div></div>`;}).join('');
+  el.innerHTML=`<div class="card"><h2>📥 未处理的推荐 <button class="qsolve" style="float:right" onclick="closeQuestions()">✕ 返回</button></h2>
+    <div class="hinttxt">历史批次里你还没 👍/👎 的论文，按相关性分排序。点开看摘要并处理——处理过的从这里消失，高分论文不再沉底。</div>
+    ${rows||'<div class="qnone">全部处理完了 🎉</div>'}</div>`;};
+window.ibExpand=function(i){
+  const x=document.getElementById('ibx'+i);if(!x)return;
+  if(x.style.display==='block'){x.style.display='none';return;}
+  const p=IB[i];x.style.display='block';
+  x.innerHTML=`<div class="abs" style="margin:8px 0">${esc(p.abstract)}</div>
+    <div class="fb">
+      <button class="on" onclick="ibAct(${i},'keep',this)">👍 Keep</button>
+      <button class="off" onclick="ibAct(${i},'drop',this)">👎 Drop</button>
+      <button class="zo" onclick="ibAct(${i},'add',this)">➕ Zotero+PDF</button>
+      <button class="origbtn" onclick="window.open('https://arxiv.org/abs/'+IB[${i}].id)">arXiv ↗</button></div>
+    <div class="fbmsg" id="ibmsg${i}">${LIVE?'':'(viz.py --serve 才能操作)'}</div>`;};
+window.ibAct=function(i,verdict,btn){
+  const p=IB[i],msg=document.getElementById('ibmsg'+i);
+  if(!LIVE){msg.innerHTML='需要 <code>viz.py --serve</code>';return;}
+  btn.disabled=true;msg.textContent='…';
+  const done=()=>{IB.splice(i,1);ibadge();renderInbox();};
+  fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:p.id,verdict})})
+    .then(r=>r.json()).then(j=>{
+      if(!j.ok){btn.disabled=false;msg.textContent='⚠ '+(j.msg||'失败');return;}
+      if(verdict==='add'){   // saving implies keep — also teach the fetcher
+        fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:p.id,verdict:'keep'})}).finally(done);
+      }else done();})
+    .catch(e=>{btn.disabled=false;msg.textContent='⚠ '+e;});};
 // ---- grounded Q&A over the paper's full text ----
 window._qa=window._qa||{};
 function renderQA(id){
@@ -1469,6 +1518,40 @@ def question_add(title, body):
     return True, "已写入 Research/questions.md"
 
 
+def inbox_backlog():
+    """Surfaced-but-untriaged stubs (no 👍/👎 yet), best score first — so a good
+    paper from an older batch can't silently drown in Inbox/."""
+    handled = set()
+    fb = os.path.join(INBOX, ".feedback.jsonl")
+    if os.path.exists(fb):
+        for line in open(fb, encoding="utf-8"):
+            try:
+                r = json.loads(line)
+            except Exception:
+                continue
+            if r.get("arxiv"):
+                handled.add(str(r["arxiv"]))
+    out = []
+    for f in glob.glob(os.path.join(INBOX, "*.md")):
+        t = open(f, encoding="utf-8").read(3000)
+
+        def g(k):
+            m = re.search(rf"^{k}:\s*(.*)$", t, re.M)
+            return m.group(1).strip() if m else ""
+        aid = g("arxiv") or g("s2id")
+        if not aid or aid in handled:
+            continue
+        ab = re.search(r"## Abstract\n(.*?)\n\n", t, re.S)
+        out.append({"id": aid, "title": g("title").strip('"'),
+                    "score": float(g("score") or 0), "published": g("published"),
+                    "has_code": g("has_code") == "true", "venue": g("venue").strip('"'),
+                    "matched": [x.strip().strip('"') for x in
+                                g("matched").strip("[]").split(",") if x.strip()],
+                    "abstract": (ab.group(1).strip() if ab else "")[:900]})
+    out.sort(key=lambda x: -x["score"])
+    return out
+
+
 def question_solve(tid):
     import radar
     if not os.path.exists(radar.QUESTIONS):
@@ -1537,6 +1620,8 @@ def serve(date, port):
                 return self._json(200, {"ok": below is not None, "below": below or ""})
             if pth == "/questions":
                 return self._json(200, {"ok": True, "questions": questions_payload()})
+            if pth == "/inbox":
+                return self._json(200, {"ok": True, "papers": inbox_backlog()})
             if pth not in ("/", "/index.html"):
                 return self._json(404, {"ok": False})
             date = pinned or load_last_fetch(None)[0] or dt.date.today().isoformat()
