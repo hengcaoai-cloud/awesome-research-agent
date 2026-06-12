@@ -926,15 +926,28 @@ window.renderInbox=function(){
     ${rows||'<div class="qnone">全部处理完了 🎉</div>'}</div>`;};
 window.ibExpand=function(i){
   const x=document.getElementById('ibx'+i);if(!x)return;
-  if(x.style.display==='block'){x.style.display='none';return;}
+  if(x.style.display==='block'){x.style.display='none';x.innerHTML='';return;}
+  // accordion: only one expanded row, so the shared deepwrap/qabox/deepmsg ids stay unique
+  document.querySelectorAll('.ibx').forEach(e=>{e.style.display='none';e.innerHTML='';});
   const p=IB[i];x.style.display='block';
+  const isArxiv=/^\d{4}\.\d{4,5}$/.test(p.id);
+  const tools=isArxiv?`<div class="btnrow" style="margin:6px 0">
+      <button class="deepbtn" onclick="deepread('${esc(p.id)}',this)">🔬 ${p.deep?'重新':''}深读</button>
+      <button class="origbtn" onclick="toggleOrig('${esc(p.id)}',this)">📄 原文 →</button>
+      <button class="origbtn" onclick="toggleQA('${esc(p.id)}')">💬 提问</button>
+      <span class="deepmsg" id="deepmsg"></span></div>
+    <div id="qabox"></div>
+    <div class="deepwrap" id="deepwrap">${p.deep?`<div class="sec"><div class="lab">Deep read</div><div class="md" id="deepmd"></div></div>`:''}</div>`:'';
   x.innerHTML=`<div class="abs" style="margin:8px 0">${esc(p.abstract)}</div>
+    ${tools}
     <div class="fb">
       <button class="on" onclick="ibAct(${i},'keep',this)">👍 Keep</button>
       <button class="off" onclick="ibAct(${i},'drop',this)">👎 Drop</button>
       <button class="zo" onclick="ibAct(${i},'add',this)">➕ Zotero+PDF</button>
       <button class="origbtn" onclick="window.open('https://arxiv.org/abs/'+IB[${i}].id)">arXiv ↗</button></div>
-    <div class="fbmsg" id="ibmsg${i}">${LIVE?'':'(viz.py --serve 才能操作)'}</div>`;};
+    <div class="fbmsg" id="ibmsg${i}">${LIVE?'':'(viz.py --serve 才能操作)'}</div>`;
+  if(p.deep){const dm=document.getElementById('deepmd');if(dm)dm.innerHTML=md2html(p.deep);}
+  typeset(x);};
 window.ibAct=function(i,verdict,btn){
   const p=IB[i],msg=document.getElementById('ibmsg'+i);
   if(!LIVE){msg.innerHTML='需要 <code>viz.py --serve</code>';return;}
@@ -1531,6 +1544,7 @@ def inbox_backlog():
                 continue
             if r.get("arxiv"):
                 handled.add(str(r["arxiv"]))
+    digest = load_digest()
     out = []
     for f in glob.glob(os.path.join(INBOX, "*.md")):
         t = open(f, encoding="utf-8").read(3000)
@@ -1547,7 +1561,8 @@ def inbox_backlog():
                     "has_code": g("has_code") == "true", "venue": g("venue").strip('"'),
                     "matched": [x.strip().strip('"') for x in
                                 g("matched").strip("[]").split(",") if x.strip()],
-                    "abstract": (ab.group(1).strip() if ab else "")[:900]})
+                    "abstract": (ab.group(1).strip() if ab else "")[:900],
+                    "deep": (digest.get(aid) or {}).get("deep", "")})
     out.sort(key=lambda x: -x["score"])
     return out
 
