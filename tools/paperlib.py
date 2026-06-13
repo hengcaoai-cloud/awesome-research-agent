@@ -197,7 +197,7 @@ def save_nearmiss(cands, conf):
             first = today.isoformat()
         rec = {k: c.get(k) for k in ("arxiv", "s2id", "title", "abstract", "authors",
                                      "published", "url", "categories", "venue_hint",
-                                     "venue", "source")}
+                                     "venue", "source") if c.get(k) is not None}
         rec["_seen"] = first
         out.append(rec)
         if len(out) >= int(conf.get("nearmiss_keep", 80)):
@@ -223,6 +223,11 @@ def venue_match(text, conf):
 
 
 def score(cand, weights, conf):
+    # JSON round-trips (near-miss pool) can hold explicit nulls — .get's
+    # default doesn't apply then, so coerce the str fields defensively
+    for k in ("abstract", "venue_hint", "venue", "title"):
+        if cand.get(k) is None:
+            cand[k] = ""
     text = (cand["title"] + " " + cand.get("abstract", "")).lower()
     s = sum(weights[w] for w in set(tokenize(text)) if w in weights)
     hits = []
