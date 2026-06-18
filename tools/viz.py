@@ -372,6 +372,8 @@ HTML_TEMPLATE = r"""<!doctype html>
 <title>Paper graph · __DATE__</title>
 <script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},options:{ignoreHtmlClass:'nomath',skipHtmlTags:['script','style','textarea']}};</script>
 <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/web/pdf_viewer.min.css">
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <style>
   :root{--bg:#11131a;--panel:#1b1e28;--ink:#e8eaf0;--mut:#9aa0b4;--line:#2a2e3c;}
   *{box-sizing:border-box}
@@ -415,6 +417,13 @@ HTML_TEMPLATE = r"""<!doctype html>
   .seltip button{cursor:pointer;border:1px solid #4a5275;background:#2b3354;color:#dfe4f5;border-radius:7px;padding:5px 11px;font-size:13px}
   .seltip button:hover{background:#34406b}
   .seltipout{font-size:13.5px;line-height:1.6;color:#e3e7f2;margin-top:7px;max-height:240px;overflow:auto}
+  /* PDF.js rendered pages — canvas looks like the PDF, text layer is selectable */
+  .pdfwrap{display:flex;flex-direction:column;align-items:center;gap:14px;padding:10px 0}
+  .pdfpage{position:relative;box-shadow:0 1px 8px rgba(0,0,0,.5);background:#fff}
+  .pdfpage canvas{display:block}
+  .textLayer{position:absolute;left:0;top:0;overflow:hidden;line-height:1;opacity:1;z-index:2}
+  .textLayer span,.textLayer br{color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0}
+  .textLayer ::selection,.textLayer span::selection{background:rgba(120,150,255,.45)}
   .origbody{max-width:1150px;margin:0 auto;font-size:16.5px;line-height:1.85;color:#d2d7e6;text-align:left}
   .origttl{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;position:sticky;top:-26px;background:#0f1117;padding:10px 0;z-index:2;max-width:1150px;margin-left:auto;margin-right:auto}
   .origbody p{margin:13px 0}
@@ -773,10 +782,39 @@ window.deepread=function(id,btn){
       else{msg.textContent=' ⚠ '+(j.msg||'failed');}
     }).catch(e=>{btn.disabled=false;msg.textContent=' ⚠ '+e;});
 };
-function showPDF(id){   // default original view: the real PDF
-  const p=document.getElementById('origpanel');
-  p.innerHTML=`<div class="orignote">📄 PDF 原文 · <a href="#" onclick="showText('${esc(id)}');return false">📖 切换文本版（可选中翻译）</a></div>
+function pdfIframe(p,id){   // native browser PDF (not selectable) — last-resort fallback
+  p.innerHTML=`<div class="orignote">📄 PDF 原文（浏览器内置查看器，无法选中翻译）· <a href="#" onclick="showText('${esc(id)}');return false">📖 文本版（可翻译）</a></div>
     <iframe class="pdfframe" src="/pdf?id=${encodeURIComponent(id)}#view=FitH" title="paper PDF"></iframe>`;
+}
+function showPDF(id){   // default original view: PDF.js render — looks like the PDF, text is selectable → translatable
+  const p=document.getElementById('origpanel');
+  if(!window.pdfjsLib){return pdfIframe(p,id);}   // CDN didn't load (offline) → native viewer
+  p.innerHTML=`<div class="orignote">📄 PDF 原文 · <b>选中任意文字即可翻译</b> · <a href="#" onclick="showText('${esc(id)}');return false">📖 文本版</a></div>
+    <div class="origbody" id="origbody"><div class="pdfwrap" id="pdfwrap">加载 PDF 中…</div></div>`;
+  try{pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';}catch(e){}
+  const wrap=document.getElementById('pdfwrap');
+  const dpr=window.devicePixelRatio||1;
+  pdfjsLib.getDocument({url:'/pdf?id='+encodeURIComponent(id)}).promise.then(async pdf=>{
+    wrap.innerHTML='';
+    const cw=Math.min((wrap.clientWidth||900)-8,1000);
+    for(let n=1;n<=pdf.numPages;n++){
+      const page=await pdf.getPage(n);
+      const base=page.getViewport({scale:1});
+      const vp=page.getViewport({scale:cw/base.width});
+      const pd=document.createElement('div');pd.className='pdfpage';
+      pd.style.width=vp.width+'px';pd.style.height=vp.height+'px';
+      const cv=document.createElement('canvas');
+      cv.width=Math.floor(vp.width*dpr);cv.height=Math.floor(vp.height*dpr);
+      cv.style.width=vp.width+'px';cv.style.height=vp.height+'px';
+      const tl=document.createElement('div');tl.className='textLayer';
+      tl.style.width=vp.width+'px';tl.style.height=vp.height+'px';
+      pd.appendChild(cv);pd.appendChild(tl);wrap.appendChild(pd);
+      await page.render({canvasContext:cv.getContext('2d'),viewport:vp,
+        transform:dpr!==1?[dpr,0,0,dpr,0,0]:null}).promise;
+      const tc=await page.getTextContent();
+      pdfjsLib.renderTextLayer({textContent:tc,container:tl,viewport:vp,textDivs:[]});
+    }
+  }).catch(()=>pdfIframe(p,id));
 }
 window.showText=function(id){   // selectable arXiv-HTML render → select text to translate
   const p=document.getElementById('origpanel');
