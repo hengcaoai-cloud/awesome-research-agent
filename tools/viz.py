@@ -773,28 +773,31 @@ window.deepread=function(id,btn){
       else{msg.textContent=' ⚠ '+(j.msg||'failed');}
     }).catch(e=>{btn.disabled=false;msg.textContent=' ⚠ '+e;});
 };
-function pdfFallback(p,id){
-  // PDF iframe: visually faithful, but text isn't selectable for translation
-  p.innerHTML=`<div class="orignote">PDF 视图（选中翻译不可用）· <a href="#" onclick="reloadFull('${esc(id)}');return false">重试文本版</a></div>
+function showPDF(id){   // default original view: the real PDF
+  const p=document.getElementById('origpanel');
+  p.innerHTML=`<div class="orignote">📄 PDF 原文 · <a href="#" onclick="showText('${esc(id)}');return false">📖 切换文本版（可选中翻译）</a></div>
     <iframe class="pdfframe" src="/pdf?id=${encodeURIComponent(id)}#view=FitH" title="paper PDF"></iframe>`;
 }
+window.showText=function(id){   // selectable arXiv-HTML render → select text to translate
+  const p=document.getElementById('origpanel');
+  p.innerHTML='<div class="orignote">加载文本版中…</div>';
+  fetch('/fulltext',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})
+    .then(r=>r.json()).then(j=>{
+      if(j.ok&&j.html){
+        p.innerHTML=`<div class="orignote">📖 文本版 · <b>选中任意文字即可翻译</b> · <a href="#" onclick="showPDF('${esc(id)}');return false">📄 回到 PDF</a></div>
+          <div class="origbody" id="origbody">${j.html}</div>`;
+        typeset(document.getElementById('origbody'));
+      }else p.innerHTML=`<div class="orignote">这篇没有 arXiv HTML 文本版，无法选中翻译 · <a href="#" onclick="showPDF('${esc(id)}');return false">📄 回到 PDF</a></div>`;
+    }).catch(()=>showPDF(id));
+};
 function loadOrig(id){
   const p=document.getElementById('origpanel');
   if(p.dataset.loaded===id){return;}
   p.dataset.loaded=id;
   if(!LIVE){p.innerHTML='<div style="padding:20px;color:var(--mut)">(needs viz.py --serve to load the original)</div>';return;}
-  // prefer the selectable HTML render (lets you select text → 翻译); fall back to PDF
-  p.innerHTML='<div class="orignote">加载原文文本中…</div>';
-  fetch('/fulltext',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})
-    .then(r=>r.json()).then(j=>{
-      if(j.ok&&j.html){
-        p.innerHTML=`<div class="orignote">📄 文本版 · <b>选中任意文字即可翻译</b></div>
-          <div class="origbody" id="origbody">${j.html}</div>`;
-        typeset(document.getElementById('origbody'));
-      }else pdfFallback(p,id);
-    }).catch(()=>pdfFallback(p,id));
+  showPDF(id);   // PDF by default; the 📖 link switches to the translatable text view
 }
-window.reloadFull=function(id){const p=document.getElementById('origpanel');p.dataset.loaded='';loadOrig(id);};
+window.showPDF=showPDF;
 // ---- select text in the original → translate ----
 function hideTip(){const t=document.getElementById('seltip');if(t)t.remove();}
 document.addEventListener('mouseup',e=>{

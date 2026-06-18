@@ -103,8 +103,8 @@ The 📥 **未处理的推荐** sidebar panel lists every surfaced-but-untriaged
 stub (best score first) with inline 👍/👎/➕ — so a good paper from an older
 batch can't silently drown (the graph itself only shows the latest fetch).
 Library-note cards (ring nodes / search results) have the full toolset too:
-📄 original now renders the **selectable arXiv-HTML text** (falls back to the PDF
-iframe when there's no HTML render) so **selecting any text pops a 🌐 翻译 button**
+📄 original shows the **real PDF** by default; a 📖 link in the top bar switches to
+the selectable arXiv-HTML text view where **selecting any text pops a 🌐 翻译 button**
 (→ `/translate`, LLM, Chinese). digest_cards/radar/translate all retry transient
 network failures via `llm.complete` (the daily job often fires before the network
 is up). ⭐ 1–5 rating (stored in `Inbox/.ratings.json` by zotero_key, sync-proof —
