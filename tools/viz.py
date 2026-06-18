@@ -408,7 +408,13 @@ HTML_TEMPLATE = r"""<!doctype html>
   /* original reading pane: flex-grow to take most of the space right of #side,
      so text/figures are large and clear without zooming */
   #origpanel{flex:1 1 0;min-width:0;background:#0f1117;border-right:1px solid var(--line);overflow:hidden;padding:0}
-  .pdfframe{width:100%;height:100vh;border:0;display:block;background:#fff}
+  .pdfframe{width:100%;height:calc(100vh - 34px);border:0;display:block;background:#fff}
+  .orignote{font-size:12.5px;color:var(--mut);padding:8px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#0f1117;z-index:3}
+  .origbody{height:calc(100vh - 34px);overflow:auto;padding:8px 30px 60px}
+  .seltip{position:absolute;z-index:50;max-width:330px;background:#1b1e28;border:1px solid #3a4258;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.5);padding:8px 10px}
+  .seltip button{cursor:pointer;border:1px solid #4a5275;background:#2b3354;color:#dfe4f5;border-radius:7px;padding:5px 11px;font-size:13px}
+  .seltip button:hover{background:#34406b}
+  .seltipout{font-size:13.5px;line-height:1.6;color:#e3e7f2;margin-top:7px;max-height:240px;overflow:auto}
   .origbody{max-width:1150px;margin:0 auto;font-size:16.5px;line-height:1.85;color:#d2d7e6;text-align:left}
   .origttl{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;position:sticky;top:-26px;background:#0f1117;padding:10px 0;z-index:2;max-width:1150px;margin-left:auto;margin-right:auto}
   .origbody p{margin:13px 0}
@@ -767,14 +773,55 @@ window.deepread=function(id,btn){
       else{msg.textContent=' ⚠ '+(j.msg||'failed');}
     }).catch(e=>{btn.disabled=false;msg.textContent=' ⚠ '+e;});
 };
+function pdfFallback(p,id){
+  // PDF iframe: visually faithful, but text isn't selectable for translation
+  p.innerHTML=`<div class="orignote">PDF 视图（选中翻译不可用）· <a href="#" onclick="reloadFull('${esc(id)}');return false">重试文本版</a></div>
+    <iframe class="pdfframe" src="/pdf?id=${encodeURIComponent(id)}#view=FitH" title="paper PDF"></iframe>`;
+}
 function loadOrig(id){
   const p=document.getElementById('origpanel');
   if(p.dataset.loaded===id){return;}
   p.dataset.loaded=id;
-  if(!LIVE){p.innerHTML='<div style="padding:20px;color:var(--mut)">(needs viz.py --serve to load the PDF)</div>';return;}
-  // embed the real arXiv PDF (proxied via our local server) — native rendering
-  p.innerHTML=`<iframe class="pdfframe" src="/pdf?id=${encodeURIComponent(id)}#view=FitH" title="paper PDF"></iframe>`;
+  if(!LIVE){p.innerHTML='<div style="padding:20px;color:var(--mut)">(needs viz.py --serve to load the original)</div>';return;}
+  // prefer the selectable HTML render (lets you select text → 翻译); fall back to PDF
+  p.innerHTML='<div class="orignote">加载原文文本中…</div>';
+  fetch('/fulltext',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})
+    .then(r=>r.json()).then(j=>{
+      if(j.ok&&j.html){
+        p.innerHTML=`<div class="orignote">📄 文本版 · <b>选中任意文字即可翻译</b></div>
+          <div class="origbody" id="origbody">${j.html}</div>`;
+        typeset(document.getElementById('origbody'));
+      }else pdfFallback(p,id);
+    }).catch(()=>pdfFallback(p,id));
 }
+window.reloadFull=function(id){const p=document.getElementById('origpanel');p.dataset.loaded='';loadOrig(id);};
+// ---- select text in the original → translate ----
+function hideTip(){const t=document.getElementById('seltip');if(t)t.remove();}
+document.addEventListener('mouseup',e=>{
+  if(e.target.closest&&e.target.closest('#seltip'))return;
+  setTimeout(()=>{
+    const sel=window.getSelection(),s=(sel&&sel.toString()||'').trim();
+    const ob=document.getElementById('origbody');
+    if(!s||s.length<2||!ob||!sel.anchorNode||!ob.contains(sel.anchorNode)){hideTip();return;}
+    hideTip();
+    const r=sel.getRangeAt(0).getBoundingClientRect();
+    const tip=document.createElement('div');tip.id='seltip';tip.className='seltip';
+    tip.innerHTML=`<button onclick="doTranslate()">🌐 翻译</button><div class="seltipout" id="seltipout"></div>`;
+    document.body.appendChild(tip);
+    window._seltext=s;
+    tip.style.left=Math.min(r.left,innerWidth-340)+'px';
+    tip.style.top=(r.bottom+window.scrollY+6)+'px';
+  },10);
+});
+document.addEventListener('mousedown',e=>{if(!(e.target.closest&&e.target.closest('#seltip')))hideTip();});
+window.doTranslate=function(){
+  const out=document.getElementById('seltipout');if(!out)return;
+  if(!LIVE){out.textContent='需要 viz.py --serve';return;}
+  out.textContent='翻译中…';
+  fetch('/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:window._seltext})})
+    .then(r=>r.json()).then(j=>{out.textContent=j.ok?j.zh:('⚠ '+(j.msg||'失败'));})
+    .catch(e=>{out.textContent='⚠ '+e;});
+};
 window.toggleOrig=function(id,btn){
   const p=document.getElementById('origpanel');
   if(p.style.display==='block'){
@@ -1441,6 +1488,22 @@ def _paper_html(arxiv_id):
     return None
 
 
+TRANSLATE_PROMPT = """把下面这段学术论文文字翻译成中文，要求：准确、通顺、保留术语
+（专有名词/缩写可保留英文，必要时括注中文）；只输出译文，不要解释、不要原文。
+
+原文：
+{text}"""
+
+
+def translate_text(text):
+    text = (text or "").strip()
+    if not text:
+        return False, "empty"
+    if len(text) > 4000:
+        text = text[:4000]
+    return llm.complete(TRANSLATE_PROMPT.format(text=text), timeout=120)
+
+
 def answer_question(arxiv_id, q, history=None):
     """Grounded Q&A over the paper's full text. Returns (ok, answer_or_error)."""
     q = (q or "").strip()
@@ -1658,6 +1721,9 @@ def serve(date, port):
             if self.path == "/rate":
                 ok, msg = save_rating(str(req.get("id", "")), req.get("rating"))
                 return self._json(200, {"ok": ok, "msg": msg})
+            if self.path == "/translate":
+                ok, out = translate_text(req.get("text"))
+                return self._json(200, {"ok": ok, **({"zh": out} if ok else {"msg": out})})
             if self.path == "/qadd":
                 ok, msg = question_add(req.get("title", ""), req.get("body", ""))
                 return self._json(200, {"ok": ok, "msg": msg,

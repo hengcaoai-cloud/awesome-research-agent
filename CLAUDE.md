@@ -103,7 +103,11 @@ The 📥 **未处理的推荐** sidebar panel lists every surfaced-but-untriaged
 stub (best score first) with inline 👍/👎/➕ — so a good paper from an older
 batch can't silently drown (the graph itself only shows the latest fetch).
 Library-note cards (ring nodes / search results) have the full toolset too:
-⭐ 1–5 rating (stored in `Inbox/.ratings.json` by zotero_key, sync-proof —
+📄 original now renders the **selectable arXiv-HTML text** (falls back to the PDF
+iframe when there's no HTML render) so **selecting any text pops a 🌐 翻译 button**
+(→ `/translate`, LLM, Chinese). digest_cards/radar/translate all retry transient
+network failures via `llm.complete` (the daily job often fires before the network
+is up). ⭐ 1–5 rating (stored in `Inbox/.ratings.json` by zotero_key, sync-proof —
 paperlib feeds it into keyword weights and S2 seeding: 5 = more like this,
 ≤2 = excluded from seeds), 👍/👎 feedback, 🔬 deep read (cached and re-shown
 on reopen), 📄 original PDF, ✍️ synthesis editor. No external deps.
