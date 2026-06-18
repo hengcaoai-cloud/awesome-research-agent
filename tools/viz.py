@@ -372,8 +372,6 @@ HTML_TEMPLATE = r"""<!doctype html>
 <title>Paper graph · __DATE__</title>
 <script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},options:{ignoreHtmlClass:'nomath',skipHtmlTags:['script','style','textarea']}};</script>
 <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/web/pdf_viewer.min.css">
-<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <style>
   :root{--bg:#11131a;--panel:#1b1e28;--ink:#e8eaf0;--mut:#9aa0b4;--line:#2a2e3c;}
   *{box-sizing:border-box}
@@ -410,24 +408,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   /* original reading pane: flex-grow to take most of the space right of #side,
      so text/figures are large and clear without zooming */
   #origpanel{flex:1 1 0;min-width:0;background:#0f1117;border-right:1px solid var(--line);overflow:hidden;padding:0}
-  .pdfframe{width:100%;height:calc(100vh - 34px);border:0;display:block;background:#fff}
-  .orignote{font-size:12.5px;color:var(--mut);padding:8px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#0f1117;z-index:3}
-  .origbody{height:calc(100vh - 34px);overflow:auto;padding:8px 30px 60px}
-  .seltip{position:absolute;z-index:50;max-width:330px;background:#1b1e28;border:1px solid #3a4258;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.5);padding:8px 10px}
-  .seltip button{cursor:pointer;border:1px solid #4a5275;background:#2b3354;color:#dfe4f5;border-radius:7px;padding:5px 11px;font-size:13px}
-  .seltip button:hover{background:#34406b}
-  .seltipout{font-size:13.5px;line-height:1.6;color:#e3e7f2;margin-top:7px;max-height:240px;overflow:auto}
-  /* PDF.js rendered pages — canvas looks like the PDF, text layer is selectable */
-  .pdfwrap{display:flex;flex-direction:column;align-items:center;gap:14px;padding:10px 0}
-  .pdfpage{position:relative;box-shadow:0 1px 8px rgba(0,0,0,.5);background:#fff}
-  .pdfpage canvas{display:block}
-  .textLayer{position:absolute;left:0;top:0;overflow:hidden;line-height:1;opacity:1;z-index:2}
-  .textLayer span,.textLayer br{color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0}
-  .textLayer ::selection,.textLayer span::selection{background:rgba(120,150,255,.45)}
-  .pdfzoom{display:inline-flex;align-items:center;gap:4px;margin:0 4px}
-  .pdfzoom button{cursor:pointer;border:1px solid var(--line);background:#222634;color:var(--ink);border-radius:6px;padding:1px 7px;font-size:13px}
-  .pdfzoom button:hover{border-color:#5566aa}
-  .pdfzoom #pdfzlbl{min-width:58px;text-align:center;color:var(--ink);font-size:12px}
+  .pdfframe{width:100%;height:100vh;border:0;display:block;background:#fff}
   .origbody{max-width:1150px;margin:0 auto;font-size:16.5px;line-height:1.85;color:#d2d7e6;text-align:left}
   .origttl{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;position:sticky;top:-26px;background:#0f1117;padding:10px 0;z-index:2;max-width:1150px;margin-left:auto;margin-right:auto}
   .origbody p{margin:13px 0}
@@ -786,119 +767,13 @@ window.deepread=function(id,btn){
       else{msg.textContent=' ⚠ '+(j.msg||'failed');}
     }).catch(e=>{btn.disabled=false;msg.textContent=' ⚠ '+e;});
 };
-function pdfIframe(p,id){   // native browser PDF (not selectable) — last-resort fallback
-  p.innerHTML=`<div class="orignote">📄 PDF 原文（浏览器内置查看器，无法选中翻译）· <a href="#" onclick="showText('${esc(id)}');return false">📖 文本版（可翻译）</a></div>
-    <iframe class="pdfframe" src="/pdf?id=${encodeURIComponent(id)}#view=FitH" title="paper PDF"></iframe>`;
-}
-window._pdf=null;          // current PDF.js document + zoom state
-async function renderPDFpages(){
-  const st=window._pdf;if(!st||!st.doc)return;
-  const wrap=document.getElementById('pdfwrap');if(!wrap)return;
-  const dpr=window.devicePixelRatio||1;
-  const fitW=Math.min((wrap.clientWidth||900)-8,1100);
-  wrap.innerHTML='';
-  for(let n=1;n<=st.doc.numPages;n++){
-    const page=await st.doc.getPage(n);
-    const base=page.getViewport({scale:1});
-    const scale=(st.zoom>0?st.zoom:fitW/base.width);   // zoom<=0 means fit-width
-    const vp=page.getViewport({scale});
-    const pd=document.createElement('div');pd.className='pdfpage';
-    pd.style.width=vp.width+'px';pd.style.height=vp.height+'px';
-    const cv=document.createElement('canvas');
-    cv.width=Math.floor(vp.width*dpr);cv.height=Math.floor(vp.height*dpr);
-    cv.style.width=vp.width+'px';cv.style.height=vp.height+'px';
-    const tl=document.createElement('div');tl.className='textLayer';
-    tl.style.width=vp.width+'px';tl.style.height=vp.height+'px';
-    pd.appendChild(cv);pd.appendChild(tl);wrap.appendChild(pd);
-    await page.render({canvasContext:cv.getContext('2d'),viewport:vp,
-      transform:dpr!==1?[dpr,0,0,dpr,0,0]:null}).promise;
-    const tc=await page.getTextContent();
-    pdfjsLib.renderTextLayer({textContent:tc,container:tl,viewport:vp,textDivs:[]});
-  }
-}
-let _zoomT=null;
-window.pdfZoom=function(delta){   // delta: +/-0.15 step, or 0 = reset to fit-width
-  const st=window._pdf;if(!st||!st.doc)return;
-  if(delta===0){st.zoom=0;}
-  else{
-    if(st.zoom<=0){   // leaving fit-width: seed from the current fitted scale
-      const wrap=document.getElementById('pdfwrap');
-      const fitW=Math.min(((wrap&&wrap.clientWidth)||900)-8,1100);
-      st.zoom=fitW/st.baseW;
-    }
-    st.zoom=Math.max(0.4,Math.min(3,st.zoom+delta));
-  }
-  const lbl=document.getElementById('pdfzlbl');
-  if(lbl)lbl.textContent=st.zoom>0?Math.round(st.zoom*100)+'%':'适应宽度';
-  clearTimeout(_zoomT);_zoomT=setTimeout(renderPDFpages,120);   // debounce rapid clicks
-};
-function showPDF(id){   // default original view: PDF.js render — looks like the PDF, text is selectable → translatable
-  const p=document.getElementById('origpanel');
-  if(!window.pdfjsLib){return pdfIframe(p,id);}   // CDN didn't load (offline) → native viewer
-  p.innerHTML=`<div class="orignote">📄 PDF · <b>选中即可翻译</b>
-      <span class="pdfzoom"><button onclick="pdfZoom(-0.15)">➖</button>
-      <span id="pdfzlbl">适应宽度</span><button onclick="pdfZoom(0.15)">➕</button>
-      <button onclick="pdfZoom(0)" title="适应宽度">⊡</button></span>
-      · <a href="#" onclick="showText('${esc(id)}');return false">📖 文本版</a></div>
-    <div class="origbody" id="origbody"><div class="pdfwrap" id="pdfwrap">加载 PDF 中…</div></div>`;
-  try{pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';}catch(e){}
-  pdfjsLib.getDocument({url:'/pdf?id='+encodeURIComponent(id)}).promise.then(async pdf=>{
-    const base=(await pdf.getPage(1)).getViewport({scale:1});
-    window._pdf={doc:pdf,zoom:0,baseW:base.width};   // zoom 0 = fit-width
-    await renderPDFpages();
-    const ob=document.getElementById('origbody');     // Ctrl/⌘+wheel to zoom
-    if(ob)ob.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey){e.preventDefault();pdfZoom(e.deltaY<0?0.15:-0.15);}},{passive:false});
-  }).catch(()=>pdfIframe(p,id));
-}
-window.showText=function(id){   // selectable arXiv-HTML render → select text to translate
-  const p=document.getElementById('origpanel');
-  p.innerHTML='<div class="orignote">加载文本版中…</div>';
-  fetch('/fulltext',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})
-    .then(r=>r.json()).then(j=>{
-      if(j.ok&&j.html){
-        p.innerHTML=`<div class="orignote">📖 文本版 · <b>选中任意文字即可翻译</b> · <a href="#" onclick="showPDF('${esc(id)}');return false">📄 回到 PDF</a></div>
-          <div class="origbody" id="origbody">${j.html}</div>`;
-        typeset(document.getElementById('origbody'));
-      }else p.innerHTML=`<div class="orignote">这篇没有 arXiv HTML 文本版，无法选中翻译 · <a href="#" onclick="showPDF('${esc(id)}');return false">📄 回到 PDF</a></div>`;
-    }).catch(()=>showPDF(id));
-};
-function loadOrig(id){
+function loadOrig(id){   // native browser PDF viewer — scroll/zoom as usual
   const p=document.getElementById('origpanel');
   if(p.dataset.loaded===id){return;}
   p.dataset.loaded=id;
-  if(!LIVE){p.innerHTML='<div style="padding:20px;color:var(--mut)">(needs viz.py --serve to load the original)</div>';return;}
-  // native browser PDF viewer by default; the 📖 link opens the translatable text view
-  p.innerHTML=`<div class="orignote">📄 PDF 原文 · <a href="#" onclick="showText('${esc(id)}');return false">📖 文本版（可选中翻译）</a></div>
-    <iframe class="pdfframe" src="/pdf?id=${encodeURIComponent(id)}#view=FitH" title="paper PDF"></iframe>`;
+  if(!LIVE){p.innerHTML='<div style="padding:20px;color:var(--mut)">(needs viz.py --serve to load the PDF)</div>';return;}
+  p.innerHTML=`<iframe class="pdfframe" src="/pdf?id=${encodeURIComponent(id)}#view=FitH" title="paper PDF"></iframe>`;
 }
-window.showPDF=showPDF;
-// ---- select text in the original → translate ----
-function hideTip(){const t=document.getElementById('seltip');if(t)t.remove();}
-document.addEventListener('mouseup',e=>{
-  if(e.target.closest&&e.target.closest('#seltip'))return;
-  setTimeout(()=>{
-    const sel=window.getSelection(),s=(sel&&sel.toString()||'').trim();
-    const ob=document.getElementById('origbody');
-    if(!s||s.length<2||!ob||!sel.anchorNode||!ob.contains(sel.anchorNode)){hideTip();return;}
-    hideTip();
-    const r=sel.getRangeAt(0).getBoundingClientRect();
-    const tip=document.createElement('div');tip.id='seltip';tip.className='seltip';
-    tip.innerHTML=`<button onclick="doTranslate()">🌐 翻译</button><div class="seltipout" id="seltipout"></div>`;
-    document.body.appendChild(tip);
-    window._seltext=s;
-    tip.style.left=Math.min(r.left,innerWidth-340)+'px';
-    tip.style.top=(r.bottom+window.scrollY+6)+'px';
-  },10);
-});
-document.addEventListener('mousedown',e=>{if(!(e.target.closest&&e.target.closest('#seltip')))hideTip();});
-window.doTranslate=function(){
-  const out=document.getElementById('seltipout');if(!out)return;
-  if(!LIVE){out.textContent='需要 viz.py --serve';return;}
-  out.textContent='翻译中…';
-  fetch('/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:window._seltext})})
-    .then(r=>r.json()).then(j=>{out.textContent=j.ok?j.zh:('⚠ '+(j.msg||'失败'));})
-    .catch(e=>{out.textContent='⚠ '+e;});
-};
 window.toggleOrig=function(id,btn){
   const p=document.getElementById('origpanel');
   if(p.style.display==='block'){
@@ -1565,22 +1440,6 @@ def _paper_html(arxiv_id):
     return None
 
 
-TRANSLATE_PROMPT = """把下面这段学术论文文字翻译成中文，要求：准确、通顺、保留术语
-（专有名词/缩写可保留英文，必要时括注中文）；只输出译文，不要解释、不要原文。
-
-原文：
-{text}"""
-
-
-def translate_text(text):
-    text = (text or "").strip()
-    if not text:
-        return False, "empty"
-    if len(text) > 4000:
-        text = text[:4000]
-    return llm.complete(TRANSLATE_PROMPT.format(text=text), timeout=120)
-
-
 def answer_question(arxiv_id, q, history=None):
     """Grounded Q&A over the paper's full text. Returns (ok, answer_or_error)."""
     q = (q or "").strip()
@@ -1798,9 +1657,6 @@ def serve(date, port):
             if self.path == "/rate":
                 ok, msg = save_rating(str(req.get("id", "")), req.get("rating"))
                 return self._json(200, {"ok": ok, "msg": msg})
-            if self.path == "/translate":
-                ok, out = translate_text(req.get("text"))
-                return self._json(200, {"ok": ok, **({"zh": out} if ok else {"msg": out})})
             if self.path == "/qadd":
                 ok, msg = question_add(req.get("title", ""), req.get("body", ""))
                 return self._json(200, {"ok": ok, "msg": msg,
