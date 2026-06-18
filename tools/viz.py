@@ -424,6 +424,10 @@ HTML_TEMPLATE = r"""<!doctype html>
   .textLayer{position:absolute;left:0;top:0;overflow:hidden;line-height:1;opacity:1;z-index:2}
   .textLayer span,.textLayer br{color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0}
   .textLayer ::selection,.textLayer span::selection{background:rgba(120,150,255,.45)}
+  .pdfzoom{display:inline-flex;align-items:center;gap:4px;margin:0 4px}
+  .pdfzoom button{cursor:pointer;border:1px solid var(--line);background:#222634;color:var(--ink);border-radius:6px;padding:1px 7px;font-size:13px}
+  .pdfzoom button:hover{border-color:#5566aa}
+  .pdfzoom #pdfzlbl{min-width:58px;text-align:center;color:var(--ink);font-size:12px}
   .origbody{max-width:1150px;margin:0 auto;font-size:16.5px;line-height:1.85;color:#d2d7e6;text-align:left}
   .origttl{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;position:sticky;top:-26px;background:#0f1117;padding:10px 0;z-index:2;max-width:1150px;margin-left:auto;margin-right:auto}
   .origbody p{margin:13px 0}
@@ -786,34 +790,64 @@ function pdfIframe(p,id){   // native browser PDF (not selectable) — last-reso
   p.innerHTML=`<div class="orignote">📄 PDF 原文（浏览器内置查看器，无法选中翻译）· <a href="#" onclick="showText('${esc(id)}');return false">📖 文本版（可翻译）</a></div>
     <iframe class="pdfframe" src="/pdf?id=${encodeURIComponent(id)}#view=FitH" title="paper PDF"></iframe>`;
 }
+window._pdf=null;          // current PDF.js document + zoom state
+async function renderPDFpages(){
+  const st=window._pdf;if(!st||!st.doc)return;
+  const wrap=document.getElementById('pdfwrap');if(!wrap)return;
+  const dpr=window.devicePixelRatio||1;
+  const fitW=Math.min((wrap.clientWidth||900)-8,1100);
+  wrap.innerHTML='';
+  for(let n=1;n<=st.doc.numPages;n++){
+    const page=await st.doc.getPage(n);
+    const base=page.getViewport({scale:1});
+    const scale=(st.zoom>0?st.zoom:fitW/base.width);   // zoom<=0 means fit-width
+    const vp=page.getViewport({scale});
+    const pd=document.createElement('div');pd.className='pdfpage';
+    pd.style.width=vp.width+'px';pd.style.height=vp.height+'px';
+    const cv=document.createElement('canvas');
+    cv.width=Math.floor(vp.width*dpr);cv.height=Math.floor(vp.height*dpr);
+    cv.style.width=vp.width+'px';cv.style.height=vp.height+'px';
+    const tl=document.createElement('div');tl.className='textLayer';
+    tl.style.width=vp.width+'px';tl.style.height=vp.height+'px';
+    pd.appendChild(cv);pd.appendChild(tl);wrap.appendChild(pd);
+    await page.render({canvasContext:cv.getContext('2d'),viewport:vp,
+      transform:dpr!==1?[dpr,0,0,dpr,0,0]:null}).promise;
+    const tc=await page.getTextContent();
+    pdfjsLib.renderTextLayer({textContent:tc,container:tl,viewport:vp,textDivs:[]});
+  }
+}
+let _zoomT=null;
+window.pdfZoom=function(delta){   // delta: +/-0.15 step, or 0 = reset to fit-width
+  const st=window._pdf;if(!st||!st.doc)return;
+  if(delta===0){st.zoom=0;}
+  else{
+    if(st.zoom<=0){   // leaving fit-width: seed from the current fitted scale
+      const wrap=document.getElementById('pdfwrap');
+      const fitW=Math.min(((wrap&&wrap.clientWidth)||900)-8,1100);
+      st.zoom=fitW/st.baseW;
+    }
+    st.zoom=Math.max(0.4,Math.min(3,st.zoom+delta));
+  }
+  const lbl=document.getElementById('pdfzlbl');
+  if(lbl)lbl.textContent=st.zoom>0?Math.round(st.zoom*100)+'%':'适应宽度';
+  clearTimeout(_zoomT);_zoomT=setTimeout(renderPDFpages,120);   // debounce rapid clicks
+};
 function showPDF(id){   // default original view: PDF.js render — looks like the PDF, text is selectable → translatable
   const p=document.getElementById('origpanel');
   if(!window.pdfjsLib){return pdfIframe(p,id);}   // CDN didn't load (offline) → native viewer
-  p.innerHTML=`<div class="orignote">📄 PDF 原文 · <b>选中任意文字即可翻译</b> · <a href="#" onclick="showText('${esc(id)}');return false">📖 文本版</a></div>
+  p.innerHTML=`<div class="orignote">📄 PDF · <b>选中即可翻译</b>
+      <span class="pdfzoom"><button onclick="pdfZoom(-0.15)">➖</button>
+      <span id="pdfzlbl">适应宽度</span><button onclick="pdfZoom(0.15)">➕</button>
+      <button onclick="pdfZoom(0)" title="适应宽度">⊡</button></span>
+      · <a href="#" onclick="showText('${esc(id)}');return false">📖 文本版</a></div>
     <div class="origbody" id="origbody"><div class="pdfwrap" id="pdfwrap">加载 PDF 中…</div></div>`;
   try{pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';}catch(e){}
-  const wrap=document.getElementById('pdfwrap');
-  const dpr=window.devicePixelRatio||1;
   pdfjsLib.getDocument({url:'/pdf?id='+encodeURIComponent(id)}).promise.then(async pdf=>{
-    wrap.innerHTML='';
-    const cw=Math.min((wrap.clientWidth||900)-8,1000);
-    for(let n=1;n<=pdf.numPages;n++){
-      const page=await pdf.getPage(n);
-      const base=page.getViewport({scale:1});
-      const vp=page.getViewport({scale:cw/base.width});
-      const pd=document.createElement('div');pd.className='pdfpage';
-      pd.style.width=vp.width+'px';pd.style.height=vp.height+'px';
-      const cv=document.createElement('canvas');
-      cv.width=Math.floor(vp.width*dpr);cv.height=Math.floor(vp.height*dpr);
-      cv.style.width=vp.width+'px';cv.style.height=vp.height+'px';
-      const tl=document.createElement('div');tl.className='textLayer';
-      tl.style.width=vp.width+'px';tl.style.height=vp.height+'px';
-      pd.appendChild(cv);pd.appendChild(tl);wrap.appendChild(pd);
-      await page.render({canvasContext:cv.getContext('2d'),viewport:vp,
-        transform:dpr!==1?[dpr,0,0,dpr,0,0]:null}).promise;
-      const tc=await page.getTextContent();
-      pdfjsLib.renderTextLayer({textContent:tc,container:tl,viewport:vp,textDivs:[]});
-    }
+    const base=(await pdf.getPage(1)).getViewport({scale:1});
+    window._pdf={doc:pdf,zoom:0,baseW:base.width};   // zoom 0 = fit-width
+    await renderPDFpages();
+    const ob=document.getElementById('origbody');     // Ctrl/⌘+wheel to zoom
+    if(ob)ob.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey){e.preventDefault();pdfZoom(e.deltaY<0?0.15:-0.15);}},{passive:false});
   }).catch(()=>pdfIframe(p,id));
 }
 window.showText=function(id){   // selectable arXiv-HTML render → select text to translate
