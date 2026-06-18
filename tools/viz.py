@@ -867,7 +867,9 @@ function loadOrig(id){
   if(p.dataset.loaded===id){return;}
   p.dataset.loaded=id;
   if(!LIVE){p.innerHTML='<div style="padding:20px;color:var(--mut)">(needs viz.py --serve to load the original)</div>';return;}
-  showPDF(id);   // PDF by default; the 📖 link switches to the translatable text view
+  // native browser PDF viewer by default; the 📖 link opens the translatable text view
+  p.innerHTML=`<div class="orignote">📄 PDF 原文 · <a href="#" onclick="showText('${esc(id)}');return false">📖 文本版（可选中翻译）</a></div>
+    <iframe class="pdfframe" src="/pdf?id=${encodeURIComponent(id)}#view=FitH" title="paper PDF"></iframe>`;
 }
 window.showPDF=showPDF;
 // ---- select text in the original → translate ----
