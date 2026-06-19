@@ -370,7 +370,10 @@ HTML_TEMPLATE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Paper graph · __DATE__</title>
-<script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]},options:{ignoreHtmlClass:'nomath',skipHtmlTags:['script','style','textarea']}};</script>
+<script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']],
+  macros:{bm:['\\boldsymbol{#1}',1],bs:['\\boldsymbol{#1}',1],vec:['\\boldsymbol{#1}',1],
+    argmin:'\\operatorname{arg\\,min}',argmax:'\\operatorname{arg\\,max}',mathbbm:['\\mathbb{#1}',1]}},
+  options:{ignoreHtmlClass:'nomath',skipHtmlTags:['script','style','textarea']}};</script>
 <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 <style>
   :root{--bg:#11131a;--panel:#1b1e28;--ink:#e8eaf0;--mut:#9aa0b4;--line:#2a2e3c;}
