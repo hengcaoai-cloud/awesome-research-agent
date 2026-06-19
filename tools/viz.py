@@ -669,9 +669,13 @@ function draw(){
   }
 }
 function loop(){
-  if(alpha>0.02||drag){step();alpha*=0.98;dirty=true;}
-  if(!userMoved){const k0=view.k,x0=view.x,y0=view.y;fitView();
-    if(Math.abs(view.k-k0)>1e-4||Math.abs(view.x-x0)>0.3||Math.abs(view.y-y0)>0.3)dirty=true;}
+  // Only do work while the simulation is "warm" (just loaded / reheated). Once it
+  // settles, this loop must be ~free — fitView sorts all nodes 3×, so running it
+  // every frame when idle churns the main thread and lags typing elsewhere.
+  if(alpha>0.02||drag){
+    step();alpha*=0.98;dirty=true;
+    if(!userMoved)fitView();      // keep centered only while still settling
+  }
   if(dirty){draw();dirty=false;}
   requestAnimationFrame(loop);}
 function pick(mx,my){let best=null,bd=1e9,bp=-1;for(const n of N){const p=T(n),dx=p.x-mx,dy=p.y-my,d=dx*dx+dy*dy;
